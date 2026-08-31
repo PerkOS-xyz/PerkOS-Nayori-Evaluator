@@ -1,0 +1,29 @@
+{
+  "name": "@perkos/nayori-evaluator",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Fail-closed autonomous evaluation service for Nayori QA jobs on Stacks.",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "verify": "npm run typecheck && npm test && npm run build",
+    "start": "node dist/server.js",
+    "dev": "tsx src/server.ts"
+  },
+  "dependencies": {
+    "pg": "^8.16.3",
+    "zod": "^4.1.11"
+  },
+  "devDependencies": {
+    "@types/node": "^24.3.0",
+    "@types/pg": "^8.15.5",
+    "tsx": "^4.20.5",
+    "typescript": "^5.9.2",
+    "vitest": "^4.0.0"
+  }
+}
