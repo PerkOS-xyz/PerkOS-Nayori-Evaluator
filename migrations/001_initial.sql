@@ -5,7 +5,9 @@ create table if not exists evaluations (
   contract_id text not null,
   job_id numeric(39, 0) not null,
   status text not null check (
-    status in ('queued', 'leased', 'blocked', 'approved', 'broadcast', 'confirmed')
+    status in (
+      'queued', 'leased', 'blocked', 'decision_ready', 'broadcast_failed', 'broadcast', 'confirmed'
+    )
   ),
   request_json jsonb not null,
   public_artifact jsonb,

@@ -40,13 +40,20 @@ export class EvaluationCoordinator {
       return existing;
     }
 
+    let artifactSaved = false;
     try {
       const artifact = await this.engine.evaluate(request, signal);
       await this.store.saveArtifact(artifact);
+      artifactSaved = true;
       const receipt = await this.recorder.recordDecision(artifact);
       await this.store.saveBroadcast(request.evaluationId, receipt.txid);
     } catch (error) {
-      if (error instanceof EvaluationBlockedError) {
+      if (artifactSaved) {
+        await this.store.saveBroadcastFailed(
+          request.evaluationId,
+          "decision_broadcast_failed"
+        );
+      } else if (error instanceof EvaluationBlockedError) {
         await this.store.saveBlocked(request.evaluationId, error.reason);
       } else {
         await this.store.saveBlocked(request.evaluationId, "evaluation_dependency_failure");

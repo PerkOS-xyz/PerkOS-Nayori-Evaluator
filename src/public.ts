@@ -21,6 +21,7 @@ export function publicEvaluation(record: StoredEvaluation) {
         }
       : {}),
     ...(record.txid ? { txid: record.txid } : {}),
+    ...(record.blockedReason ? { reason: record.blockedReason } : {}),
     updatedAt: record.updatedAt,
   };
 }

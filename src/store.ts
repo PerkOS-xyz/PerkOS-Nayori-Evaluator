@@ -5,7 +5,8 @@ export type EvaluationStatus =
   | "queued"
   | "leased"
   | "blocked"
-  | "approved"
+  | "decision_ready"
+  | "broadcast_failed"
   | "broadcast"
   | "confirmed";
 
@@ -24,6 +25,7 @@ export interface EvaluationStore {
   get(id: string): Promise<StoredEvaluation | null>;
   claim(id: string, owner: string, leaseSeconds: number): Promise<boolean>;
   saveArtifact(artifact: EvaluationArtifact): Promise<void>;
+  saveBroadcastFailed(id: string, reason: string): Promise<void>;
   saveBlocked(id: string, reason: string): Promise<void>;
   saveBroadcast(id: string, txid: string): Promise<void>;
 }
@@ -92,9 +94,18 @@ export class PostgresEvaluationStore implements EvaluationStore {
   async saveArtifact(artifact: EvaluationArtifact): Promise<void> {
     await this.pool.query(
       `update evaluations
-       set status = 'approved', public_artifact = $2::jsonb, updated_at = now()
+       set status = 'decision_ready', public_artifact = $2::jsonb, updated_at = now()
        where id = $1 and status in ('queued', 'leased')`,
       [artifact.evaluationId, JSON.stringify(artifact)]
+    );
+  }
+
+  async saveBroadcastFailed(id: string, reason: string): Promise<void> {
+    await this.pool.query(
+      `update evaluations
+       set status = 'broadcast_failed', blocked_reason = $2, updated_at = now()
+       where id = $1 and status = 'decision_ready'`,
+      [id, reason]
     );
   }
 
@@ -111,7 +122,7 @@ export class PostgresEvaluationStore implements EvaluationStore {
     await this.pool.query(
       `update evaluations
        set status = 'broadcast', txid = $2, updated_at = now()
-       where id = $1 and status = 'approved'`,
+       where id = $1 and status = 'decision_ready'`,
       [id, txid]
     );
   }

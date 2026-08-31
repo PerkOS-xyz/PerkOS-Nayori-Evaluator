@@ -14,6 +14,8 @@ the allowlisted `record-decision` contract call. Recording a decision cannot mov
   `sbtc-commerce-v4` candidates.
 - Low confidence, model disagreement, malformed JSON, incomplete criterion coverage and ambiguous
   evidence fail closed without a transaction.
+- A validated model artifact is recorded as `decision_ready`; a failed chain submission becomes
+  `broadcast_failed`, preserving the hashes without claiming that an on-chain decision exists.
 - Public HTTP routes are read-only: minimal health/readiness plus sanitized evaluation state.
 - PostgreSQL enforces one evaluation per `(network, contract, job)` and supports expiring leases.
 - Raw/private evidence has a ciphertext-only persistence column; public artifacts contain bounded

@@ -7,6 +7,8 @@ import {
 import { EvaluationBlockedError, EvaluationEngine } from "../src/evaluator.js";
 import type { StructuredInference } from "../src/inference.js";
 import { AllowlistedDecisionRecorder } from "../src/chain.js";
+import { EvaluationCoordinator } from "../src/coordinator.js";
+import type { EvaluationStore, StoredEvaluation } from "../src/store.js";
 
 const STX_CONTRACT = "ST16EWRC01S1SFWGBP63MW47VY8P3AYFA8VGEBGE5.agentic-commerce-v5";
 const SBTC_CONTRACT = "ST16EWRC01S1SFWGBP63MW47VY8P3AYFA8VGEBGE5.sbtc-commerce-v4";
@@ -194,5 +196,59 @@ describe("AllowlistedDecisionRecorder", () => {
     await expect(
       recorder.recordDecision({ ...artifact, contract: "ST1EVIL.transfer" })
     ).rejects.toThrow("not allowlisted");
+  });
+});
+
+describe("EvaluationCoordinator", () => {
+  it("records a truthful terminal state when decision broadcast fails", async () => {
+    const input = request();
+    const engine = new EvaluationEngine({
+      inference: inferenceWith(primary, verifier),
+      primaryModel: "primary-model",
+      verifierModel: "verifier-model",
+      minimumConfidence: 0.85,
+    });
+    let stored: StoredEvaluation = {
+      id: input.evaluationId,
+      status: "queued",
+      request: input,
+      updatedAt: "2026-08-31T16:00:00.000Z",
+    };
+    const store: EvaluationStore = {
+      putQueued: vi.fn(async () => undefined),
+      get: vi.fn(async () => stored),
+      claim: vi.fn(async () => true),
+      saveArtifact: vi.fn(async (artifact) => {
+        stored = { ...stored, status: "decision_ready", artifact };
+      }),
+      saveBroadcastFailed: vi.fn(async (_id, reason) => {
+        stored = { ...stored, status: "broadcast_failed", blockedReason: reason };
+      }),
+      saveBlocked: vi.fn(async (_id, reason) => {
+        stored = { ...stored, status: "blocked", blockedReason: reason };
+      }),
+      saveBroadcast: vi.fn(async (_id, txid) => {
+        stored = { ...stored, status: "broadcast", txid };
+      }),
+    };
+    const recorder = {
+      recordDecision: vi.fn(async () => {
+        throw new Error("testnet endpoint unavailable");
+      }),
+    };
+    const coordinator = new EvaluationCoordinator({
+      engine,
+      store,
+      recorder,
+      workerId: "qa-worker-1",
+    });
+
+    const result = await coordinator.process(input);
+
+    expect(result.status).toBe("broadcast_failed");
+    expect(result.blockedReason).toBe("decision_broadcast_failed");
+    expect(result.artifact?.evidenceHash).toMatch(/^[0-9a-f]{64}$/);
+    expect(store.saveBlocked).not.toHaveBeenCalled();
+    expect(store.saveBroadcast).not.toHaveBeenCalled();
   });
 });
