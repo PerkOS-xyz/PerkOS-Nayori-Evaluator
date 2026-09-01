@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### Fixed
+
+- Include the concrete Zod-derived JSON Schema in every Hermes primary and verifier request so
+  live models return the exact fail-closed decision contract instead of an unrelated valid JSON
+  object.
+- Perform at most one isolated, schema-constrained repair when a model returns valid but
+  non-conforming JSON; a failed repair remains blocked and cannot reach the chain adapter.
+
 ### Added
 
 - QA/testnet-only autonomous evaluation engine with deterministic validation, schema-constrained
