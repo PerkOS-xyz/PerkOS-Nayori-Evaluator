@@ -1,0 +1,54 @@
+name: Deploy exact QA commit
+on:
+  push: { branches: [qa] }
+  workflow_dispatch:
+    inputs:
+      sha: { description: Exact commit already contained in qa, required: true, type: string }
+permissions: { contents: read }
+concurrency: { group: nayori-evaluator-qa-deploy, cancel-in-progress: false }
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: qa
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: { fetch-depth: 0, ref: qa }
+      - name: Select exact QA SHA
+        id: release
+        env: { REQUESTED_SHA: "${{ inputs.sha || github.sha }}" }
+        run: |
+          printf '%s' "$REQUESTED_SHA" | grep -Eq '^[0-9a-f]{40}$'
+          git fetch origin qa
+          git merge-base --is-ancestor "$REQUESTED_SHA" origin/qa
+          git checkout --detach "$REQUESTED_SHA"
+          echo "sha=$REQUESTED_SHA" >> "$GITHUB_OUTPUT"
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with: { node-version: 22, cache: npm }
+      - run: npm ci
+      - run: npm run verify
+      - run: npm audit --audit-level=high
+      - name: Reject tracked secrets
+        run: |
+          if git ls-files | grep -E '(^|/)\.env($|\.)' | grep -v '\.env\.example$'; then
+            echo "Tracked environment secret file detected" >&2
+            exit 1
+          fi
+      - name: Upload and deploy on the VPS
+        env:
+          RELEASE_SHA: ${{ steps.release.outputs.sha }}
+          SSH_HOST: ${{ secrets.NAYORI_QA_SSH_HOST }}
+          SSH_PRIVATE_KEY: ${{ secrets.NAYORI_QA_SSH_PRIVATE_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.NAYORI_QA_SSH_KNOWN_HOSTS }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/nayori_qa
+          chmod 600 ~/.ssh/nayori_qa
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          git archive --format=tar "$RELEASE_SHA" | gzip -9 > /tmp/nayori-release.tar.gz
+          ARCHIVE_SHA=$(sha256sum /tmp/nayori-release.tar.gz | cut -d' ' -f1)
+          ssh -i ~/.ssh/nayori_qa -o BatchMode=yes nayori-deploy@"$SSH_HOST" \
+            "stage PerkOS-Nayori-Evaluator qa $RELEASE_SHA $ARCHIVE_SHA" < /tmp/nayori-release.tar.gz
+          ssh -i ~/.ssh/nayori_qa -o BatchMode=yes nayori-deploy@"$SSH_HOST" \
+            "deploy PerkOS-Nayori-Evaluator qa $RELEASE_SHA $ARCHIVE_SHA"
+
