@@ -53,6 +53,8 @@ export class EvaluationEngine {
       model: this.primaryModel,
       messages: primaryMessages(request),
       schema: modelDecisionSchema,
+      sessionId: `nayori:${request.evaluationId}:primary`,
+      idempotencyKey: `${request.evaluationId}:primary`,
       ...(signal ? { signal } : {}),
     });
     if (primary.decision === "manual_review") {
@@ -67,6 +69,8 @@ export class EvaluationEngine {
       model: this.verifierModel,
       messages: verifierMessages(request, primary),
       schema: verificationSchema,
+      sessionId: `nayori:${request.evaluationId}:verifier`,
+      idempotencyKey: `${request.evaluationId}:verifier`,
       ...(signal ? { signal } : {}),
     });
     if (

@@ -9,14 +9,18 @@ the allowlisted `record-decision` contract call. Recording a decision cannot mov
 
 ## Security boundaries
 
-- PerkOS-LLM is an inference gateway only and never receives Stacks signer material.
+- Hermes runs on the dedicated PerkOS agent host and is reachable only from the QA evaluator host.
+- PerkOS-LLM is consumed only by Hermes and never receives Stacks signer material.
+- The evaluator signer remains on the isolated QA platform host and can call only the allowlisted
+  `record-decision` function on the configured v5/v4 testnet contracts.
 - Network and contract configuration accept only testnet `agentic-commerce-v5` and
   `sbtc-commerce-v4` candidates.
 - Low confidence, model disagreement, malformed JSON, incomplete criterion coverage and ambiguous
   evidence fail closed without a transaction.
 - A validated model artifact is recorded as `decision_ready`; a failed chain submission becomes
   `broadcast_failed`, preserving the hashes without claiming that an on-chain decision exists.
-- Public HTTP routes are read-only: minimal health/readiness plus sanitized evaluation state.
+- Public HTTP routes are read-only: minimal health/readiness plus sanitized evaluation state. The
+  processing route is internal and requires a dedicated bearer token.
 - PostgreSQL enforces one evaluation per `(network, contract, job)` and supports expiring leases.
 - Raw/private evidence has a ciphertext-only persistence column; public artifacts contain bounded
   explanations and hashes.
