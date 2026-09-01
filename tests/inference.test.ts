@@ -43,6 +43,10 @@ describe("HermesInference", () => {
       "x-hermes-session-id": "nayori:evaluation:primary",
       "x-hermes-session-key": "nayori:evaluation:primary",
     });
+    const body = JSON.parse(String(init?.body)) as { instructions: string };
+    expect(body.instructions).toContain("JSON Schema");
+    expect(body.instructions).toContain('"decision"');
+    expect(body.instructions).toContain('"const":"approve"');
   });
 
   it("fails closed on incomplete or non-JSON output", async () => {
@@ -76,5 +80,49 @@ describe("HermesInference", () => {
       ),
     });
     await expect(malformed.complete(input)).rejects.toThrow("invalid JSON");
+  });
+
+  it("performs one bounded schema repair and validates the repaired object", async () => {
+    let requestIndex = 0;
+    const fetchMock = vi.fn(async (_input: string | URL | Request, _init?: RequestInit) => {
+      requestIndex += 1;
+      const text =
+        requestIndex === 1 ? '{"decision":"reject"}' : '{"decision":"approve"}';
+      return new Response(
+        JSON.stringify({ status: "completed", output: [{ content: [{ text }] }] }),
+        { status: 200, headers: { "content-type": "application/json" } }
+      );
+    });
+    const inference = new HermesInference({
+      baseUrl: "https://example.com",
+      apiKey: "h".repeat(32),
+      fetch: fetchMock,
+    });
+
+    await expect(
+      inference.complete({
+        model: "test",
+        messages: [
+          { role: "system", content: "policy" },
+          { role: "user", content: "evidence" },
+        ],
+        schema,
+        sessionId: "session",
+        idempotencyKey: "request",
+      })
+    ).resolves.toEqual({ decision: "approve" });
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const [, repairInit] = fetchMock.mock.calls[1]!;
+    expect(repairInit?.headers).toMatchObject({
+      "idempotency-key": "request:schema-repair",
+      "x-hermes-session-id": "session:schema-repair",
+    });
+    const repairBody = JSON.parse(String(repairInit?.body)) as {
+      instructions: string;
+      input: string;
+    };
+    expect(repairBody.instructions).toContain("one-time schema repair");
+    expect(repairBody.input).toContain("repair_schema");
   });
 });
