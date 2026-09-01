@@ -4,6 +4,9 @@
 
 ### Fixed
 
+- Permit a same-ID, byte-equivalent retry only after a dependency-blocked evaluation with no
+  artifact or transaction; different IDs for the same job and mutated same-ID requests now return
+  explicit HTTP 409 conflicts instead of a generic 503.
 - Include the concrete Zod-derived JSON Schema in every Hermes primary and verifier request so
   live models return the exact fail-closed decision contract instead of an unrelated valid JSON
   object.

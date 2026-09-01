@@ -2,12 +2,22 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import { timingSafeEqual } from "node:crypto";
 import { Pool } from "pg";
 import { loadConfig, safeConfig } from "./config.js";
-import { PostgresEvaluationStore } from "./store.js";
+import { EvaluationConflictError, PostgresEvaluationStore } from "./store.js";
 import { publicEvaluation } from "./public.js";
 import { HermesInference } from "./inference.js";
 import { EvaluationEngine } from "./evaluator.js";
 import { AllowlistedDecisionRecorder, StacksTestnetDecisionAdapter } from "./chain.js";
 import { EvaluationCoordinator } from "./coordinator.js";
+
+export function serviceErrorResponse(error: unknown): {
+  readonly status: number;
+  readonly body: { readonly error: string };
+} {
+  if (error instanceof EvaluationConflictError) {
+    return { status: 409, body: { error: error.reason } };
+  }
+  return { status: 503, body: { error: "service_unavailable" } };
+}
 
 function send(response: ServerResponse, status: number, body: unknown): void {
   response.writeHead(status, {
@@ -104,8 +114,9 @@ export async function main(): Promise<void> {
         return;
       }
       send(response, 404, { error: "not_found" });
-    } catch {
-      send(response, 503, { error: "service_unavailable" });
+    } catch (error) {
+      const failure = serviceErrorResponse(error);
+      send(response, failure.status, failure.body);
     }
   });
 
