@@ -38,3 +38,10 @@ commit wallet keys, PerkOS-LLM credentials, database credentials, evidence or re
 
 Production deployment remains disabled until the full isolated QA lifecycle and release manifest
 pass their gates.
+
+## QA-first release
+
+`qa` is the protected integration branch and `main` is production. The exact QA commit is built on
+the Nayori VPS and must pass database migration, liveness, readiness and retry-semantics checks
+before a release branch may target `main`. Merging code does not activate a production evaluator
+or authorize any mainnet transaction.

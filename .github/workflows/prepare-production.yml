@@ -1,0 +1,35 @@
+name: Prepare production candidate from QA
+on:
+  workflow_dispatch:
+    inputs:
+      sha: { description: Exact QA commit with a passed VPS receipt, required: true, type: string }
+      release_id: { description: Stable release identifier, required: true, type: string }
+permissions: { contents: write, pull-requests: write }
+jobs:
+  candidate:
+    runs-on: ubuntu-latest
+    environment: qa
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: { fetch-depth: 0, ref: qa }
+      - name: Verify QA receipt and open production PR
+        env:
+          RELEASE_SHA: ${{ inputs.sha }}
+          RELEASE_ID: ${{ inputs.release_id }}
+          SSH_HOST: ${{ secrets.NAYORI_QA_SSH_HOST }}
+          SSH_PRIVATE_KEY: ${{ secrets.NAYORI_QA_SSH_PRIVATE_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.NAYORI_QA_SSH_KNOWN_HOSTS }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          printf '%s' "$RELEASE_SHA" | grep -Eq '^[0-9a-f]{40}$'
+          printf '%s' "$RELEASE_ID" | grep -Eq '^[0-9A-Za-z][0-9A-Za-z._-]{2,63}$'
+          git fetch origin qa main
+          git merge-base --is-ancestor "$RELEASE_SHA" origin/qa
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/nayori_qa
+          chmod 600 ~/.ssh/nayori_qa
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          ssh -i ~/.ssh/nayori_qa -o BatchMode=yes nayori-deploy@"$SSH_HOST" "verify PerkOS-Nayori-Evaluator qa $RELEASE_SHA"
+          BRANCH="release/$RELEASE_ID-evaluator"
+          git push origin "$RELEASE_SHA:refs/heads/$BRANCH"
+          gh pr create --base main --head "$BRANCH" --title "release: promote Evaluator $RELEASE_ID" --body "Promotes the exact QA-verified commit \`$RELEASE_SHA\`. Production evaluator activation remains a separate explicit rollout."
