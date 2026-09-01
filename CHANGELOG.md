@@ -10,8 +10,14 @@
   SHA-256 evidence/explanation commitments.
 - PostgreSQL idempotency, expiring work leases and sanitized public evaluation reads.
 - Contract allowlist exposing only `record-decision`; no arbitrary transfer or settlement tool.
+- Dedicated Hermes Responses adapter with isolated primary/verifier sessions and strict JSON
+  validation.
+- Authenticated internal processing route and a Stacks testnet transaction adapter pinned to the
+  configured evaluator principal and v5/v4 contract allowlist.
 
 ### Security
 
-- Separate PerkOS-LLM identity with no access to Stacks signer material.
-- Minimal health surface, no public mutation endpoint and no tracked runtime environment files.
+- Separate Hermes/PerkOS-LLM identity with no access to Stacks signer material.
+- Minimal public health/read surface; the only mutation route requires a dedicated service token.
+- Signer/address equality is checked at startup and the adapter cannot target mainnet or arbitrary
+  contract functions.
