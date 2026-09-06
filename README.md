@@ -1,7 +1,8 @@
 # PerkOS Nayori Evaluator
 
 Autonomous evaluation service for Nayori agent-commerce jobs on Stacks. Source is public;
-processing remains internal, authenticated and QA/testnet-only.
+processing remains QA/testnet-only. The existing mode is internal/authenticated; an unreleased,
+default-off committed public admission mode is described below.
 
 The first release is intentionally restricted to the isolated Stacks testnet environment. It
 accepts structured job evidence internally, runs deterministic validation, asks a primary model
@@ -24,8 +25,8 @@ the allowlisted `record-decision` contract call. Recording a decision cannot mov
   evidence fail closed without a transaction.
 - A validated model artifact is recorded as `decision_ready`; a failed chain submission becomes
   `broadcast_failed`, preserving the hashes without claiming that an on-chain decision exists.
-- Public HTTP routes are read-only: minimal health/readiness plus sanitized evaluation state. The
-  processing route is internal and requires a dedicated bearer token.
+- Public HTTP routes are read-only by default. The optional committed mode admits exact on-chain
+  manifests asynchronously; it disables the internal processing route instead of bypassing quotas.
 - PostgreSQL enforces one evaluation per `(network, contract, job)` and supports expiring leases.
 - One QA worker serializes evaluation/signing to avoid concurrent nonce use in this process.
   The lease covers both models, their bounded repairs and chain checks. Run one replica per signer;
@@ -74,8 +75,53 @@ not external adoption or production revenue.
 Public reads are paced at three-second intervals and use bounded HTTPS requests to the canonical
 testnet API. State can change after a read; the contract remains authoritative. Evidence URIs and
 acceptance criteria remain untrusted input under the existing model policy; chain preflight does
-not independently fetch or authenticate the deliverable's contents. Model agreement and tests
+does not independently fetch the old internal mode's deliverable contents. Committed mode verifies
+bounded downloaded bytes before either model sees them. Model agreement and tests
 are not an external security review. See the [design](docs/plans/2026-09-06-service-fee-qa-design.md).
+
+## Committed public admission — unreleased QA candidate
+
+With `PUBLIC_COMMITTED_EVALUATIONS=true`, `POST /v1/evaluations` validates a v1 SDK request
+and returns HTTP 202 with its sanitized state. This is admission, not approval or settlement.
+The normal request shape gains mandatory `commitmentVersion: "1"` and a deterministic
+`evaluationId` from the SDK's `evaluationJobId({ network, contract, jobId })`.
+Use SDK `prepareEvaluationJob` before buyer creation and `prepareEvaluationSubmission` before
+provider submission. Criteria bind the client-authored description, network, asset, contract and
+evaluator. Evidence additionally binds provider, job ID and criteria digest. The deliverable is
+36 bytes (`ny1:` + raw SHA-256), within the current contract's 64-byte limit. No new contract is needed.
+
+Any caller may trigger the **already authorized on-chain manifests**. No caller may replace criteria,
+replace the provider's evidence, impersonate a wallet or force a decision. A hash is not a signing
+credential or evidence of truth. Existing roles, budget/escrow, fee policy, canonical sBTC, deadline
+and no-existing-decision checks run at admission and again before/after inference.
+
+Limits default to 10 admitted jobs per UTC day, 5 queued/leased jobs, and minimum escrow of
+100000 micro-STX or 1000 satoshis. Quotas and uniqueness are reserved in one PostgreSQL transaction.
+One automatic attempt per job: repeats return the same record without new inference or requeue.
+Each attempt has two models with at most one schema repair per model. These caps bound work,
+not a guaranteed dollar cost or break-even margin; QA token values are not revenue.
+
+The worker drains the durable queue independently of HTTP and acquires a database-session singleton
+lock. A second public worker refuses startup; loss of its lock connection stops new work.
+Queued work resumes after restart; expired in-progress leases become
+`interrupted_attempt_requires_reconciliation`. Artifacts or ambiguous broadcasts are not retried.
+Reconcile the exact wallet nonce, transaction history and record manually; never delete the record
+to force a duplicate. This does not claim exactly-once network delivery.
+
+Evidence fetching requires operator-owned HTTPS origins in `EVIDENCE_ALLOWED_ORIGINS`:
+no credentials, redirects or arbitrary job-selected hosts. Only UTF-8 text/plain/application/json,
+up to five files, 8192 bytes each, 16000 bytes total, 15-second fetch deadlines. Actual byte count,
+SHA-256 and MIME must match before inference; both models receive the same verified content.
+Keep origin DNS and outbound network policy under operator control; an origin allowlist does not
+replace egress protection against DNS changes. No HTML execution, tools or code execution occurs.
+Model outputs must cover criteria and cite known evidence; an approval cannot contain failed
+criteria or empty references. Human appeal rights and existing settlement authority remain unchanged.
+
+Before rollout: test transaction isolation/quotas against real PostgreSQL, singleton/restart/lock-loss
+behavior, public reverse-proxy limits and two independent participant wallets through real QA
+creation/submission/evaluation/appeal/finalization. Unit/SQL-contract tests are not those deployment
+gates. Keep public mode disabled until they pass. No live endpoint, production service, package
+publication or new transaction is enabled by this source change.
 
 ## QA-first release
 

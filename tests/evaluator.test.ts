@@ -82,6 +82,21 @@ function inferenceWith(...values: unknown[]): StructuredInference {
 }
 
 describe("EvaluationEngine", () => {
+  it("never sends a committed request to the model without verified content", async () => {
+    const complete = vi.fn();
+    const engine = new EvaluationEngine({ ...targetOptions, inference: { complete },
+      primaryModel: "primary", verifierModel: "verifier", minimumConfidence: 0.85 });
+    await expect(engine.evaluate(request({ commitmentVersion: "1" }))).rejects.toThrow("verified_evidence_loader_required");
+    expect(complete).not.toHaveBeenCalled();
+  });
+  it("blocks an approval whose criteria fail or cite unknown evidence", async () => {
+    for (const change of [{ outcome: "fail" }, { evidenceIds: ["invented"] }, { evidenceIds: [] }]) {
+      const engine = new EvaluationEngine({ ...targetOptions,
+        inference: inferenceWith({ ...primary, criteria: [{ ...primary.criteria[0], ...change }] }),
+        primaryModel: "primary", verifierModel: "verifier", minimumConfidence: 0.85 });
+      await expect(engine.evaluate(request())).rejects.toThrow("criterion_evidence_inconsistent");
+    }
+  });
   it("requires isolated testnet inputs and non-zero evidence digests", () => {
     expect(() =>
       evaluationRequestSchema.parse({ ...request(), network: "mainnet" })

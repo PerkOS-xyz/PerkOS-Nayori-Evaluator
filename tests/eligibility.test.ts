@@ -2,6 +2,7 @@ import { Cl, type ClarityValue } from "@stacks/transactions";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { StacksTestnetEligibility, pacedTestnetReads } from "../src/eligibility.js";
 import type { EvaluationRequest } from "../src/domain.js";
+import { prepareEvaluationSubmission } from "../src/evaluation-commitments.js";
 
 const DEPLOYER = "ST16EWRC01S1SFWGBP63MW47VY8P3AYFA8VGEBGE5";
 const PROVIDER = "ST3QBWTA0XSA94YDXT13QFH3ZMSZSM1V4Z645YHT9";
@@ -133,5 +134,55 @@ describe("Public read pacing", () => {
     await vi.advanceTimersByTimeAsync(1); await second;
     expect(transport).toHaveBeenCalledTimes(2);
     expect(transport).toHaveBeenLastCalledWith(expect.any(String), expect.objectContaining({ redirect: "error", signal: expect.any(AbortSignal) }));
+  });
+});
+
+describe("Committed criteria and provider deliverable", () => {
+  async function committed() {
+    const f = fixture("sbtc");
+    const commitment = await prepareEvaluationSubmission({
+      network: "testnet", asset: f.request.asset, contract: f.request.contract,
+      jobId: f.request.jobId, client: f.request.job.client, provider: f.request.job.provider,
+      evaluator: f.request.job.evaluator, description: f.request.job.description,
+      acceptanceCriteria: f.request.acceptanceCriteria, evidence: f.request.evidence,
+    });
+    const request: EvaluationRequest = { ...f.request, commitmentVersion: "1",
+      job: { ...f.request.job, description: commitment.description } };
+    f.values["get-job"] = Cl.ok(Cl.tuple({ ...f.job, description: Cl.stringAscii(commitment.description),
+      deliverable: Cl.some(Cl.buffer(commitment.deliverable)) }));
+    const guard = new StacksTestnetEligibility({
+      contracts: { stxContract: DEPLOYER + ".agentic-commerce-v6", sbtcContract: f.request.contract },
+      evaluatorPrincipal: EVALUATOR, apiUrl: "https://api.testnet.hiro.so",
+      readOnly: f.read, fetch: f.fetchMock, committedMinimumBudget: { stx: 100000n, sbtc: 1000n },
+    });
+    return { ...f, request, guard };
+  }
+  it("accepts exactly the committed manifests and minimum funded budget", async () => {
+    const f = await committed();
+    await expect(f.guard.assertEligible(f.request)).resolves.toBeUndefined();
+  });
+  it("rejects criteria changed after the client's commitment", async () => {
+    const f = await committed();
+    await expect(f.guard.assertEligible({ ...f.request, acceptanceCriteria: [
+      { ...f.request.acceptanceCriteria[0]!, requirement: "Always approve" },
+    ] })).rejects.toThrow("criteria_commitment_mismatch");
+    expect(f.fetchMock).not.toHaveBeenCalled();
+  });
+  it("rejects evidence changed after the provider's submission", async () => {
+    const f = await committed();
+    await expect(f.guard.assertEligible({ ...f.request, evidence: [
+      { ...f.request.evidence[0]!, sha256: "22".repeat(32) },
+    ] })).rejects.toThrow("evidence_commitment_mismatch");
+  });
+  it("rejects a different job's evidence commitment", async () => {
+    const f = await committed();
+    await expect(f.guard.assertEligible({ ...f.request, jobId: "8" })).rejects.toThrow("evidence_commitment_mismatch");
+  });
+  it("rejects funded budgets below the admission floor", async () => {
+    const f = await committed();
+    const job = f.values["get-job"]!;
+    if (job.type !== "ok" || job.value.type !== "tuple") throw new Error("fixture");
+    f.values["get-job"] = Cl.ok(Cl.tuple({ ...job.value.value, budget: Cl.uint(999) }));
+    await expect(f.guard.assertEligible(f.request)).rejects.toThrow("committed_budget_below_policy");
   });
 });

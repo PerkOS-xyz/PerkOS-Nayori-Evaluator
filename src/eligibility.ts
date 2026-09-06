@@ -1,5 +1,6 @@
 import { Cl, ClarityType, fetchCallReadOnlyFunction, type ClarityValue } from "@stacks/transactions";
 import type { EvaluationRequest } from "./domain.js";
+import { parseEvaluationDescription, prepareEvaluationSubmission } from "./evaluation-commitments.js";
 import { EvaluationBlockedError } from "./evaluator.js";
 import { commerceContractsSchema, hasServiceFees, isTestnetApiUrl, matchesTarget, type CommerceContracts } from "./contracts.js";
 
@@ -13,6 +14,7 @@ export interface EligibilityOptions {
   readonly apiUrl: string;
   readonly fetch?: typeof fetch;
   readonly readOnly?: ReadOnly;
+  readonly committedMinimumBudget?: { readonly stx: bigint; readonly sbtc: bigint };
 }
 function ok(cv: ClarityValue): ClarityValue {
   if (cv.type !== ClarityType.ResponseOk) throw new Error("Public state is unavailable.");
@@ -91,6 +93,20 @@ export class StacksTestnetEligibility implements EvaluationEligibility {
     requireState(new Set([request.job.client, request.job.provider, request.job.evaluator]).size === 3,
       "job_role_collision");
     const budget = uint(job.budget);
+    if (request.commitmentVersion === "1") {
+      const minimum = this.options.committedMinimumBudget;
+      requireState(!!minimum && budget >= minimum[request.asset], "committed_budget_below_policy");
+      const description = parseEvaluationDescription(request.job.description);
+      const commitment = await prepareEvaluationSubmission({
+        network: request.network, asset: request.asset, contract: request.contract, jobId: request.jobId,
+        client: request.job.client, provider: request.job.provider, evaluator: request.job.evaluator,
+        description: description.description, acceptanceCriteria: request.acceptanceCriteria, evidence: request.evidence,
+      });
+      requireState(commitment.criteriaHash === description.criteriaHash, "criteria_commitment_mismatch");
+      const deliverable = some(job.deliverable);
+      requireState(deliverable.type === ClarityType.Buffer &&
+        Buffer.from(deliverable.value, "hex").equals(Buffer.from(commitment.deliverable)), "evidence_commitment_mismatch");
+    }
     requireState(budget > 0n && uint(ok(await read("get-escrow-balance"))) === budget, "escrow_budget_mismatch");
     const decision = await read("get-decision");
     requireState(decision.type === ClarityType.ResponseErr &&

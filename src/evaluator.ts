@@ -7,6 +7,7 @@ import {
 } from "./domain.js";
 import { canonicalJson, sha256Hex } from "./canonical.js";
 import type { StructuredInference } from "./inference.js";
+import type { EvidenceLoader } from "./evidence.js";
 import { commerceContractsSchema, matchesTarget, type CommerceContracts } from "./contracts.js";
 import {
   POLICY_VERSION,
@@ -31,6 +32,7 @@ export interface EvaluationEngineOptions {
   readonly verifierModel: string;
   readonly minimumConfidence: number;
   readonly now?: () => Date;
+  readonly evidenceLoader?: EvidenceLoader;
 }
 
 export class EvaluationEngine {
@@ -41,6 +43,7 @@ export class EvaluationEngine {
   private readonly verifierModel: string;
   private readonly minimumConfidence: number;
   private readonly now: () => Date;
+  private readonly evidenceLoader: EvidenceLoader | undefined;
 
   constructor(options: EvaluationEngineOptions) {
     this.contracts = commerceContractsSchema.parse(options.contracts);
@@ -50,15 +53,18 @@ export class EvaluationEngine {
     this.verifierModel = options.verifierModel;
     this.minimumConfidence = options.minimumConfidence;
     this.now = options.now ?? (() => new Date());
+    this.evidenceLoader = options.evidenceLoader;
   }
 
   async evaluate(rawRequest: unknown, signal?: AbortSignal): Promise<EvaluationArtifact> {
     const request = evaluationRequestSchema.parse(rawRequest);
     this.validateDeterministically(request);
+    if (request.commitmentVersion && !this.evidenceLoader) throw new EvaluationBlockedError("verified_evidence_loader_required");
+    const verifiedEvidence = request.commitmentVersion ? await this.evidenceLoader!.load(request, signal) : undefined;
 
     const primary = await this.inference.complete({
       model: this.primaryModel,
-      messages: primaryMessages(request),
+      messages: primaryMessages(request, verifiedEvidence),
       schema: modelDecisionSchema,
       sessionId: `nayori:${request.evaluationId}:primary`,
       idempotencyKey: `${request.evaluationId}:primary`,
@@ -71,10 +77,16 @@ export class EvaluationEngine {
       throw new EvaluationBlockedError("primary_confidence_below_policy");
     }
     this.validateCriterionCoverage(request, primary.criteria.map((item) => item.criterionId));
+    const evidenceIds = new Set(request.evidence.map(item => item.id));
+    if (new Set(primary.criteria.map(item => item.criterionId)).size !== primary.criteria.length ||
+      primary.criteria.some(item => item.evidenceIds.some(id => !evidenceIds.has(id))) ||
+      (primary.decision === "approve" && primary.criteria.some(item => item.outcome !== "pass" || !item.evidenceIds.length))) {
+      throw new EvaluationBlockedError("criterion_evidence_inconsistent");
+    }
 
     const verification = await this.inference.complete({
       model: this.verifierModel,
-      messages: verifierMessages(request, primary),
+      messages: verifierMessages(request, primary, verifiedEvidence),
       schema: verificationSchema,
       sessionId: `nayori:${request.evaluationId}:verifier`,
       idempotencyKey: `${request.evaluationId}:verifier`,
