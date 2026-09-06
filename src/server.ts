@@ -1,13 +1,14 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { timingSafeEqual } from "node:crypto";
 import { Pool } from "pg";
-import { loadConfig, safeConfig } from "./config.js";
+import { evaluationLeaseSeconds, loadConfig, safeConfig } from "./config.js";
 import { EvaluationConflictError, PostgresEvaluationStore } from "./store.js";
 import { publicEvaluation } from "./public.js";
 import { HermesInference } from "./inference.js";
 import { EvaluationEngine } from "./evaluator.js";
 import { AllowlistedDecisionRecorder, StacksTestnetDecisionAdapter } from "./chain.js";
 import { EvaluationCoordinator } from "./coordinator.js";
+import { StacksTestnetEligibility } from "./eligibility.js";
 
 export function serviceErrorResponse(error: unknown): {
   readonly status: number;
@@ -50,6 +51,7 @@ async function readJson(request: IncomingMessage): Promise<unknown> {
 
 export async function main(): Promise<void> {
   const config = loadConfig();
+  const contracts = { stxContract: config.STX_COMMERCE_CONTRACT, sbtcContract: config.SBTC_COMMERCE_CONTRACT };
   const pool = new Pool({ connectionString: config.DATABASE_URL, max: 5 });
   const store = new PostgresEvaluationStore(pool);
   const inference = new HermesInference({
@@ -58,12 +60,14 @@ export async function main(): Promise<void> {
     timeoutMs: config.INFERENCE_TIMEOUT_MS,
   });
   const engine = new EvaluationEngine({
+    contracts, evaluatorPrincipal: config.EVALUATOR_PRINCIPAL,
     inference,
     primaryModel: config.PRIMARY_MODEL,
     verifierModel: config.VERIFIER_MODEL,
     minimumConfidence: config.MIN_DECISION_CONFIDENCE,
   });
   const adapter = new StacksTestnetDecisionAdapter({
+    contracts,
     apiUrl: config.STACKS_API_URL,
     privateKey: config.EVALUATOR_PRIVATE_KEY,
     evaluatorPrincipal: config.EVALUATOR_PRINCIPAL,
@@ -78,7 +82,10 @@ export async function main(): Promise<void> {
     engine,
     store,
     recorder,
+    eligibility: new StacksTestnetEligibility({ contracts,
+      evaluatorPrincipal: config.EVALUATOR_PRINCIPAL, apiUrl: config.STACKS_API_URL }),
     workerId: `nayori-evaluator-${process.pid}`,
+    leaseSeconds: evaluationLeaseSeconds(config),
   });
   const server = createServer(async (request, response) => {
     try {

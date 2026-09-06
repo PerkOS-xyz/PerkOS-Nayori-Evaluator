@@ -8,6 +8,8 @@ import {
   makeContractCall,
 } from "@stacks/transactions";
 import { STACKS_TESTNET } from "@stacks/network";
+import { z } from "zod";
+import { commerceContractsSchema, isTestnetApiUrl, matchesTarget, type CommerceContracts } from "./contracts.js";
 
 export interface DecisionReceipt {
   readonly txid: string;
@@ -33,7 +35,7 @@ export interface RestrictedDecisionAdapter {
 }
 
 export class AllowlistedDecisionRecorder implements DecisionRecorder {
-  private readonly contracts: ReadonlySet<string>;
+  private readonly contracts: CommerceContracts;
   private readonly adapter: RestrictedDecisionAdapter;
 
   constructor(options: {
@@ -41,13 +43,13 @@ export class AllowlistedDecisionRecorder implements DecisionRecorder {
     readonly sbtcContract: string;
     readonly adapter: RestrictedDecisionAdapter;
   }) {
-    this.contracts = new Set([options.stxContract, options.sbtcContract]);
+    this.contracts = commerceContractsSchema.parse(options);
     this.adapter = options.adapter;
   }
 
   async recordDecision(artifact: EvaluationArtifact): Promise<DecisionReceipt> {
     if (artifact.network !== "testnet") throw new Error("Only Stacks testnet is allowed.");
-    if (!this.contracts.has(artifact.contract)) throw new Error("Contract is not allowlisted.");
+    if (!matchesTarget(this.contracts, artifact)) throw new Error("Asset/contract is not allowlisted.");
     return this.adapter.execute({
       network: "testnet",
       contract: artifact.contract,
@@ -61,6 +63,7 @@ export class AllowlistedDecisionRecorder implements DecisionRecorder {
 }
 
 export interface StacksTestnetDecisionAdapterOptions {
+  readonly contracts: CommerceContracts;
   readonly apiUrl: string;
   readonly privateKey: string;
   readonly evaluatorPrincipal: string;
@@ -68,17 +71,26 @@ export interface StacksTestnetDecisionAdapterOptions {
 }
 
 export class StacksTestnetDecisionAdapter implements RestrictedDecisionAdapter {
+  private readonly contracts: CommerceContracts;
   private readonly apiUrl: string;
   private readonly privateKey: string;
   private readonly evaluatorPrincipal: string;
   private readonly fee: number;
+  private readonly network: typeof STACKS_TESTNET;
 
   constructor(options: StacksTestnetDecisionAdapterOptions) {
+    this.contracts = commerceContractsSchema.parse(options.contracts);
+    if (!isTestnetApiUrl(options.apiUrl)) throw new Error("Only the public testnet API is allowed.");
+    if (!Number.isSafeInteger(options.fee) || options.fee < 1_000 || options.fee > 100_000) {
+      throw new Error("Decision gas fee is outside the configured safety range.");
+    }
     const derived = getAddressFromPrivateKey(options.privateKey, "testnet");
     if (derived !== options.evaluatorPrincipal) {
       throw new Error("Evaluator signer does not match EVALUATOR_PRINCIPAL.");
     }
     this.apiUrl = options.apiUrl.replace(/\/+$/, "");
+    this.network = { ...STACKS_TESTNET, client: { baseUrl: this.apiUrl,
+      fetch: (url, init) => fetch(url, { ...init, redirect: "error", signal: AbortSignal.timeout(15_000) }) } };
     this.privateKey = options.privateKey;
     this.evaluatorPrincipal = options.evaluatorPrincipal;
     this.fee = options.fee;
@@ -96,11 +108,19 @@ export class StacksTestnetDecisionAdapter implements RestrictedDecisionAdapter {
     if (input.network !== "testnet" || input.functionName !== "record-decision") {
       throw new Error("Decision adapter only permits record-decision on Stacks testnet.");
     }
+    if (![this.contracts.stxContract, this.contracts.sbtcContract].includes(input.contract)) {
+      throw new Error("Contract is not allowlisted by the signing adapter.");
+    }
+    const digest = z.string().regex(/^[0-9a-f]{64}$/).refine(value => value !== "0".repeat(64));
+    z.object({
+      jobId: z.string().regex(/^[1-9][0-9]*$/).refine(value => BigInt(value) < 2n ** 128n),
+      decision: z.enum(["approve", "reject"]), evidenceHash: digest, explanationHash: digest,
+    }).parse(input);
     const [contractAddress, contractName, extra] = input.contract.split(".");
     if (!contractAddress || !contractName || extra) throw new Error("Invalid contract identifier.");
     const nonce = await fetchNonce({
       address: this.evaluatorPrincipal,
-      network: { ...STACKS_TESTNET, client: { baseUrl: this.apiUrl } },
+      network: this.network,
     });
     const transaction = await makeContractCall({
       contractAddress,
@@ -113,7 +133,7 @@ export class StacksTestnetDecisionAdapter implements RestrictedDecisionAdapter {
         Cl.bufferFromHex(input.explanationHash),
       ],
       senderKey: this.privateKey,
-      network: { ...STACKS_TESTNET, client: { baseUrl: this.apiUrl } },
+      network: this.network,
       nonce,
       fee: BigInt(this.fee),
       postConditionMode: PostConditionMode.Deny,
@@ -121,7 +141,7 @@ export class StacksTestnetDecisionAdapter implements RestrictedDecisionAdapter {
     });
     const result = await broadcastTransaction({
       transaction,
-      network: { ...STACKS_TESTNET, client: { baseUrl: this.apiUrl } },
+      network: this.network,
     });
     const broadcast = result as { txid?: string; error?: string; reason?: string };
     if (broadcast.error || !broadcast.txid) {

@@ -12,6 +12,7 @@ import type { EvaluationStore, StoredEvaluation } from "../src/store.js";
 
 const STX_CONTRACT = "ST16EWRC01S1SFWGBP63MW47VY8P3AYFA8VGEBGE5.agentic-commerce-v5";
 const SBTC_CONTRACT = "ST16EWRC01S1SFWGBP63MW47VY8P3AYFA8VGEBGE5.sbtc-commerce-v4";
+const targetOptions = { contracts: { stxContract: STX_CONTRACT, sbtcContract: SBTC_CONTRACT }, evaluatorPrincipal: "ST1EVALUATOR" };
 
 function request(overrides: Partial<EvaluationRequest> = {}): EvaluationRequest {
   return {
@@ -95,6 +96,7 @@ describe("EvaluationEngine", () => {
 
   it("produces a public, deterministic artifact only after independent agreement", async () => {
     const engine = new EvaluationEngine({
+      ...targetOptions,
       inference: inferenceWith(primary, verifier),
       primaryModel: "primary-model",
       verifierModel: "verifier-model",
@@ -118,6 +120,7 @@ describe("EvaluationEngine", () => {
 
   it("fails closed on verifier disagreement or low confidence", async () => {
     const disagreement = new EvaluationEngine({
+      ...targetOptions,
       inference: inferenceWith(primary, { ...verifier, agrees: false }),
       primaryModel: "primary",
       verifierModel: "verifier",
@@ -128,6 +131,7 @@ describe("EvaluationEngine", () => {
     );
 
     const lowConfidence = new EvaluationEngine({
+      ...targetOptions,
       inference: inferenceWith({ ...primary, confidence: 0.5 }),
       primaryModel: "primary",
       verifierModel: "verifier",
@@ -140,6 +144,7 @@ describe("EvaluationEngine", () => {
 
   it("blocks missing criterion coverage before any chain action", async () => {
     const engine = new EvaluationEngine({
+      ...targetOptions,
       inference: inferenceWith({ ...primary, criteria: [] }),
       primaryModel: "primary",
       verifierModel: "verifier",
@@ -200,9 +205,66 @@ describe("AllowlistedDecisionRecorder", () => {
 });
 
 describe("EvaluationCoordinator", () => {
+  it("serializes claims and recovers the queue after a rejected task", async () => {
+    const first = request();
+    const second = request({ evaluationId: "af49cc54-0cba-4cf3-98d2-5e5c6965fab9", jobId: "8" });
+    let release!: () => void;
+    let started!: () => void;
+    const held = new Promise<void>(resolve => { release = resolve; });
+    const entered = new Promise<void>(resolve => { started = resolve; });
+    const engine = new EvaluationEngine({ ...targetOptions,
+      inference: inferenceWith(), primaryModel: "primary", verifierModel: "verifier", minimumConfidence: 0.85 });
+    const stored: StoredEvaluation = { id: second.evaluationId, status: "blocked", request: second, updatedAt: "2026-09-06T00:00:00Z" };
+    const store: EvaluationStore = {
+      putQueued: vi.fn(async input => {
+        if (input.evaluationId === first.evaluationId) { started(); await held; throw new Error("store unavailable"); }
+      }),
+      claim: vi.fn(async () => true), get: vi.fn(async () => stored),
+      saveArtifact: vi.fn(), saveBroadcast: vi.fn(), saveBroadcastFailed: vi.fn(), saveBlocked: vi.fn(),
+    };
+    const recorder = { recordDecision: vi.fn() };
+    const eligibility = { assertEligible: vi.fn(async () => { throw new EvaluationBlockedError("review_window_closed"); }) };
+    const coordinator = new EvaluationCoordinator({ engine, store, recorder, eligibility, workerId: "test", leaseSeconds: 1338 });
+    const failed = coordinator.process(first).catch(error => error as Error);
+    await entered;
+    const queued = coordinator.process(second);
+    await Promise.resolve();
+    expect(store.putQueued).toHaveBeenCalledTimes(1);
+    expect(store.claim).not.toHaveBeenCalled();
+    release();
+    expect(await failed).toMatchObject({ message: "store unavailable" });
+    expect((await queued).id).toBe(second.evaluationId);
+    expect(store.claim).toHaveBeenCalledExactlyOnceWith(second.evaluationId, "test", 1338);
+    expect(recorder.recordDecision).not.toHaveBeenCalled();
+  });
+  it.each(["before", "after"])("does not record a decision if eligibility fails %s inference", async phase => {
+    const input = request();
+    const engine = new EvaluationEngine({ ...targetOptions,
+      inference: inferenceWith(primary, verifier), primaryModel: "primary", verifierModel: "verifier", minimumConfidence: 0.85 });
+    const evaluate = vi.spyOn(engine, "evaluate");
+    let stored: StoredEvaluation = { id: input.evaluationId, status: "queued", request: input, updatedAt: "2026-09-06T00:00:00Z" };
+    const store: EvaluationStore = {
+      putQueued: vi.fn(async () => undefined), claim: vi.fn(async () => true), get: vi.fn(async () => stored),
+      saveArtifact: vi.fn(async () => undefined), saveBroadcast: vi.fn(async () => undefined),
+      saveBroadcastFailed: vi.fn(async () => undefined),
+      saveBlocked: vi.fn(async (_id, reason) => { stored = { ...stored, status: "blocked", blockedReason: reason }; }),
+    };
+    let calls = 0;
+    const eligibility = { assertEligible: vi.fn(async () => {
+      calls += 1;
+      if (calls === (phase === "before" ? 1 : 2)) throw new EvaluationBlockedError("review_window_closed");
+    }) };
+    const recorder = { recordDecision: vi.fn() };
+    const result = await new EvaluationCoordinator({ engine, store, recorder, eligibility, workerId: "test" }).process(input);
+    expect(result.status).toBe("blocked"); expect(result.blockedReason).toBe("review_window_closed");
+    expect(evaluate).toHaveBeenCalledTimes(phase === "before" ? 0 : 1);
+    expect(store.saveArtifact).not.toHaveBeenCalled(); expect(recorder.recordDecision).not.toHaveBeenCalled();
+    expect(store.saveBroadcast).not.toHaveBeenCalled();
+  });
   it("records a truthful terminal state when decision broadcast fails", async () => {
     const input = request();
     const engine = new EvaluationEngine({
+      ...targetOptions,
       inference: inferenceWith(primary, verifier),
       primaryModel: "primary-model",
       verifierModel: "verifier-model",
@@ -240,6 +302,7 @@ describe("EvaluationCoordinator", () => {
       engine,
       store,
       recorder,
+      eligibility: { assertEligible: vi.fn(async () => undefined) },
       workerId: "qa-worker-1",
     });
 
