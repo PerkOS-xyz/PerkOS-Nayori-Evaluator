@@ -7,6 +7,7 @@ import {
 } from "./domain.js";
 import { canonicalJson, sha256Hex } from "./canonical.js";
 import type { StructuredInference } from "./inference.js";
+import { commerceContractsSchema, matchesTarget, type CommerceContracts } from "./contracts.js";
 import {
   POLICY_VERSION,
   PRIMARY_PROMPT_VERSION,
@@ -23,6 +24,8 @@ export class EvaluationBlockedError extends Error {
 }
 
 export interface EvaluationEngineOptions {
+  readonly contracts: CommerceContracts;
+  readonly evaluatorPrincipal: string;
   readonly inference: StructuredInference;
   readonly primaryModel: string;
   readonly verifierModel: string;
@@ -31,6 +34,8 @@ export interface EvaluationEngineOptions {
 }
 
 export class EvaluationEngine {
+  private readonly contracts: CommerceContracts;
+  private readonly evaluatorPrincipal: string;
   private readonly inference: StructuredInference;
   private readonly primaryModel: string;
   private readonly verifierModel: string;
@@ -38,6 +43,8 @@ export class EvaluationEngine {
   private readonly now: () => Date;
 
   constructor(options: EvaluationEngineOptions) {
+    this.contracts = commerceContractsSchema.parse(options.contracts);
+    this.evaluatorPrincipal = options.evaluatorPrincipal;
     this.inference = options.inference;
     this.primaryModel = options.primaryModel;
     this.verifierModel = options.verifierModel;
@@ -113,10 +120,11 @@ export class EvaluationEngine {
     ) {
       throw new EvaluationBlockedError("evaluator_role_collision");
     }
-    const expectedSuffix =
-      request.asset === "sbtc" ? ".sbtc-commerce-v4" : ".agentic-commerce-v5";
-    if (!request.contract.endsWith(expectedSuffix)) {
+    if (!matchesTarget(this.contracts, request)) {
       throw new EvaluationBlockedError("asset_contract_mismatch");
+    }
+    if (request.job.evaluator !== this.evaluatorPrincipal) {
+      throw new EvaluationBlockedError("evaluator_principal_mismatch");
     }
     const criterionIds = new Set(request.acceptanceCriteria.map((item) => item.id));
     if (criterionIds.size !== request.acceptanceCriteria.length) {
