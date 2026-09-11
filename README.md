@@ -129,3 +129,14 @@ publication or new transaction is enabled by this source change.
 the Nayori VPS and must pass database migration, liveness, readiness and retry-semantics checks
 before a release branch may target `main`. Merging code does not activate a production evaluator
 or authorize any mainnet transaction.
+
+## Private QA evidence
+
+QA private evidence is an additional opt-in path. Set `PRIVATE_EVIDENCE_ENABLED=true`, the exact
+`PRIVATE_EVIDENCE_ORIGIN=https://api.qa.nayori.ai`, and an absolute
+`PRIVATE_EVIDENCE_OAUTH_CLIENT_FILE`. That mode-600, non-symlink file must be wallet-linked to the
+configured evaluator principal and contain exactly the `evidence:read` scope. The evaluator accepts
+only canonical Nayori evidence UUID locators, requests a fresh authorized download, fetches only the
+dedicated Nayori QA S3 hostname, and rechecks size, SHA-256, UTF-8 and JSON syntax before inference.
+OAuth is never forwarded to S3. Credentials, signed URLs and raw evidence are not public outputs or
+logs. The feature is disabled by default and does not change contracts.

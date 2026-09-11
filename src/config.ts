@@ -22,6 +22,9 @@ const configSchema = z.object({
   DATABASE_URL: z.string().url(),
   PUBLIC_COMMITTED_EVALUATIONS: z.enum(["true", "false"]).default("false"),
   EVIDENCE_ALLOWED_ORIGINS: z.string().default(""),
+  PRIVATE_EVIDENCE_ENABLED: z.enum(["true", "false"]).default("false"),
+  PRIVATE_EVIDENCE_ORIGIN: z.string().default(""),
+  PRIVATE_EVIDENCE_OAUTH_CLIENT_FILE: z.string().default(""),
   PUBLIC_EVALUATIONS_DAILY_LIMIT: z.coerce.number().int().min(1).max(100).default(10),
   PUBLIC_EVALUATIONS_QUEUE_LIMIT: z.coerce.number().int().min(1).max(20).default(5),
   PUBLIC_EVALUATIONS_MIN_STX: z.string().regex(/^[1-9][0-9]{0,20}$/).default("100000"),
@@ -29,7 +32,9 @@ const configSchema = z.object({
 }).refine(config => commerceContractsSchema.safeParse({
   stxContract: config.STX_COMMERCE_CONTRACT,
   sbtcContract: config.SBTC_COMMERCE_CONTRACT,
-}).success, "Invalid QA commerce contract pair.");
+}).success, "Invalid QA commerce contract pair.").refine(config => config.PRIVATE_EVIDENCE_ENABLED === "false" ||
+  config.PRIVATE_EVIDENCE_ORIGIN === "https://api.qa.nayori.ai" && config.PRIVATE_EVIDENCE_OAUTH_CLIENT_FILE.startsWith("/"),
+"Invalid private evidence configuration.");
 
 export type EvaluatorConfig = z.infer<typeof configSchema>;
 
@@ -53,6 +58,7 @@ export function safeConfig(config: EvaluatorConfig) {
     earnedServiceFeeBps: fees ? 200 : 0,
     evaluatorPrincipal: config.EVALUATOR_PRINCIPAL,
     committedEvaluationsEnabled: config.PUBLIC_COMMITTED_EVALUATIONS === "true",
+    privateEvidenceEnabled: config.PRIVATE_EVIDENCE_ENABLED === "true",
     hermesOrigin: new URL(config.HERMES_API_BASE_URL).origin,
     primaryModel: config.PRIMARY_MODEL,
     verifierModel: config.VERIFIER_MODEL,
