@@ -12,6 +12,7 @@ import { AllowlistedDecisionRecorder, StacksTestnetDecisionAdapter } from "./cha
 import { EvaluationCoordinator } from "./coordinator.js";
 import { StacksTestnetEligibility } from "./eligibility.js";
 import { AllowlistedEvidenceLoader } from "./evidence.js";
+import { loadPrivateEvidenceCredentials, privateEvidenceToken } from "./private-evidence.js";
 
 export function serviceErrorResponse(error: unknown): {
   readonly status: number;
@@ -83,13 +84,19 @@ export async function main(): Promise<void> {
     apiKey: config.HERMES_API_KEY,
     timeoutMs: config.INFERENCE_TIMEOUT_MS,
   });
+  const privateEvidence = config.PRIVATE_EVIDENCE_ENABLED === "true" ? {
+    origin: config.PRIVATE_EVIDENCE_ORIGIN,
+    accessToken: privateEvidenceToken(loadPrivateEvidenceCredentials(config.PRIVATE_EVIDENCE_OAUTH_CLIENT_FILE,
+      config.EVALUATOR_PRINCIPAL)),
+  } : undefined;
   const engine = new EvaluationEngine({
     contracts, evaluatorPrincipal: config.EVALUATOR_PRINCIPAL,
     inference,
     primaryModel: config.PRIMARY_MODEL,
     verifierModel: config.VERIFIER_MODEL,
     minimumConfidence: config.MIN_DECISION_CONFIDENCE,
-    evidenceLoader: new AllowlistedEvidenceLoader(config.EVIDENCE_ALLOWED_ORIGINS.split(",").map(item => item.trim()).filter(Boolean)),
+    evidenceLoader: new AllowlistedEvidenceLoader(config.EVIDENCE_ALLOWED_ORIGINS.split(",").map(item => item.trim()).filter(Boolean),
+      fetch, privateEvidence),
   });
   const adapter = new StacksTestnetDecisionAdapter({
     contracts,
