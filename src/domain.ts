@@ -21,6 +21,7 @@ export const evidenceItemSchema = z.object({
 });
 
 export const evaluationRequestSchema = z.object({
+  commitmentVersion: z.literal("1").optional(),
   evaluationId: z.string().uuid(),
   network: z.literal("testnet"),
   asset: z.enum(["stx", "sbtc"]),

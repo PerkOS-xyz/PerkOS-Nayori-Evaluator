@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### Committed evaluation candidate
+
+- Add default-off asynchronous public admission for exact on-chain client/provider commitments, budget floors, durable daily/queue caps and one automatic attempt per job.
+- Verify downloaded evidence bytes from explicit HTTPS origins before inference; bound file count, size, MIME and timeouts. Reject inconsistent criterion/evidence decisions.
+- Recover queued work after restart; quarantine interrupted attempts without replaying inference/signatures. Public mode holds a singleton database lock and disables the legacy internal processing route.
+- No deployment, contract changes, mainnet enablement or new on-chain E2E evidence is implied.
+
 ### Fixed
 
 - Permit a same-ID, byte-equivalent retry only after a dependency-blocked evaluation with no

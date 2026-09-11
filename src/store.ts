@@ -1,5 +1,6 @@
 import type { Pool } from "pg";
 import type { EvaluationArtifact, EvaluationRequest } from "./domain.js";
+import { canonicalJson } from "./canonical.js";
 
 export type EvaluationStatus =
   | "queued"
@@ -59,6 +60,7 @@ export class PostgresEvaluationStore implements EvaluationStore {
          and evaluations.public_artifact is null
          and evaluations.txid is null
          and evaluations.request_json = excluded.request_json
+         and not (evaluations.request_json ? 'commitmentVersion')
        returning evaluations.id`,
       [
         request.evaluationId,
@@ -124,7 +126,9 @@ export class PostgresEvaluationStore implements EvaluationStore {
            lease_expires_at = now() + ($3 * interval '1 second'),
            attempts = attempts + 1, updated_at = now()
        where id = $1
-         and (status = 'queued' or (status = 'leased' and lease_expires_at < now()))
+         and (status = 'queued' or (status = 'leased' and lease_expires_at < now()
+              and not (request_json ? 'commitmentVersion')))
+         and (not (request_json ? 'commitmentVersion') or attempts = 0)
        returning id`,
       [id, owner, leaseSeconds]
     );
@@ -166,4 +170,58 @@ export class PostgresEvaluationStore implements EvaluationStore {
       [id, txid]
     );
   }
+
+  /** Single DB transaction: deduplication and admission caps cannot race across HTTP callers. */
+  async admitCommitted(request: EvaluationRequest, limits: { daily: number; pending: number }): Promise<void> {
+    if (request.commitmentVersion !== "1") throw new Error("commitment_required");
+    const db = await this.pool.connect();
+    try {
+      await db.query("begin");
+      await db.query("select pg_advisory_xact_lock(7240191)");
+      const existing = await db.query<{ request_json: EvaluationRequest }>(
+        "select request_json from evaluations where network = $1 and contract_id = $2 and job_id = $3",
+        [request.network, request.contract, request.jobId]);
+      if (existing.rows[0]) {
+        if (canonicalJson(existing.rows[0].request_json) !== canonicalJson(request)) {
+          throw new EvaluationConflictError("evaluation_request_mismatch");
+        }
+      } else {
+        const counts = await db.query<{ daily: string; pending: string }>(
+          `select count(*) filter (where created_at >= date_trunc('day', now() at time zone 'UTC') at time zone 'UTC') as daily,
+                  count(*) filter (where status in ('queued', 'leased')) as pending
+           from evaluations where request_json->>'commitmentVersion' = '1'`);
+        const count = counts.rows[0];
+        if (!count || Number(count.daily) >= limits.daily || Number(count.pending) >= limits.pending) {
+          throw new AdmissionLimitError();
+        }
+        await db.query(
+          `insert into evaluations (id, network, asset, contract_id, job_id, status, request_json)
+           values ($1, $2, $3, $4, $5, 'queued', $6::jsonb)`,
+          [request.evaluationId, request.network, request.asset, request.contract, request.jobId, JSON.stringify(request)]);
+      }
+      await db.query("commit");
+    } catch (error) {
+      await db.query("rollback");
+      throw error;
+    } finally {
+      db.release();
+    }
+  }
+
+  async nextCommitted(): Promise<StoredEvaluation | null> {
+    // An interrupted attempt may already have spent LLM tokens or broadcast a decision.
+    // Never automatically reclaim it, even if the prior process crashed before persisting a txid.
+    await this.pool.query(
+      `update evaluations set status = 'blocked', blocked_reason = 'interrupted_attempt_requires_reconciliation',
+       updated_at = now() where request_json->>'commitmentVersion' = '1'
+       and status = 'leased' and lease_expires_at < now()`);
+    const result = await this.pool.query<{ id: string }>(
+      `select id from evaluations where request_json->>'commitmentVersion' = '1'
+       and status = 'queued' and attempts = 0 order by created_at, id limit 1`);
+    return result.rows[0] ? this.get(result.rows[0].id) : null;
+  }
+}
+
+export class AdmissionLimitError extends Error {
+  constructor() { super("evaluation_admission_limit"); }
 }
