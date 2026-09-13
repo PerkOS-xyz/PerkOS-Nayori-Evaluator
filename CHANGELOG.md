@@ -11,6 +11,8 @@
   network before nonce lookup, deny-mode signing and broadcast.
 - Add production-safe environment documentation while keeping OAuth-to-S3 private evidence
   explicitly QA-only until its complete production boundary is promoted separately.
+- Require an explicit mainnet activation acknowledgement in both configuration and the signing
+  adapter, and identify the dual-network service as version 0.2.0.
 - Expand unit coverage across both networks and crossed environment/API/deployer/principal cases.
 
 ### Committed evaluation candidate

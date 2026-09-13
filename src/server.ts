@@ -106,6 +106,7 @@ export async function main(): Promise<void> {
     privateKey: config.EVALUATOR_PRIVATE_KEY,
     evaluatorPrincipal: config.EVALUATOR_PRINCIPAL,
     fee: config.TRANSACTION_FEE_USTX,
+    mainnetActivationConfirmation: config.CONFIRM_MAINNET_EVALUATOR,
   });
   const recorder = new AllowlistedDecisionRecorder({
     network: config.STACKS_NETWORK,
@@ -142,7 +143,7 @@ export async function main(): Promise<void> {
     try {
       const url = new URL(request.url ?? "/", "http://localhost");
       if (request.method === "GET" && url.pathname === "/healthz") {
-        send(response, 200, { ok: true, service: "nayori-evaluator", version: "0.1.0" });
+        send(response, 200, { ok: true, service: "nayori-evaluator", version: "0.2.0" });
         return;
       }
       if (request.method === "GET" && url.pathname === "/readyz") {

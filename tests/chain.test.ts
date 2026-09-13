@@ -1,7 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { Cl, PostConditionMode, broadcastTransaction, fetchNonce, getAddressFromPrivateKey, makeContractCall } from "@stacks/transactions";
 import { AllowlistedDecisionRecorder, StacksDecisionAdapter } from "../src/chain.js";
-import { EVALUATOR_NETWORK_POLICIES, type StacksNetworkName } from "../src/contracts.js";
+import { EVALUATOR_NETWORK_POLICIES, MAINNET_EVALUATOR_CONFIRMATION,
+  type StacksNetworkName } from "../src/contracts.js";
 import type { EvaluationArtifact } from "../src/domain.js";
 
 vi.mock("@stacks/transactions", async importOriginal => ({
@@ -16,7 +17,8 @@ function contracts(network: StacksNetworkName) {
 }
 function opts(network: StacksNetworkName) {
   return { contracts: contracts(network), apiUrl: EVALUATOR_NETWORK_POLICIES[network].apiUrl, privateKey: KEY,
-    evaluatorPrincipal: getAddressFromPrivateKey(KEY, network), fee: 5000 };
+    evaluatorPrincipal: getAddressFromPrivateKey(KEY, network), fee: 5000,
+    mainnetActivationConfirmation: network === "mainnet" ? MAINNET_EVALUATOR_CONFIRMATION : "" };
 }
 function input(network: StacksNetworkName, asset: "stx" | "sbtc" = "stx") {
   const pair = contracts(network);
@@ -67,6 +69,7 @@ describe("Signing adapter independently enforces the network matrix", () => {
     expect(() => new StacksDecisionAdapter({ ...opts("testnet"), apiUrl: EVALUATOR_NETWORK_POLICIES.mainnet.apiUrl })).toThrow();
     expect(() => new StacksDecisionAdapter({ ...opts("testnet"), contracts: contracts("mainnet") })).toThrow();
     expect(() => new StacksDecisionAdapter({ ...opts("mainnet"), evaluatorPrincipal: getAddressFromPrivateKey(KEY, "testnet") })).toThrow();
+    expect(() => new StacksDecisionAdapter({ ...opts("mainnet"), mainnetActivationConfirmation: "" })).toThrow();
   });
 
   it.each([{ fee: 100001 }, { fee: 999 }, { fee: 1000.5 }])("rejects unsafe fee %j", change => {

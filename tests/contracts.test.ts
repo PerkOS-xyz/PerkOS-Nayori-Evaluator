@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { evaluationLeaseSeconds, loadConfig, safeConfig } from "../src/config.js";
 import {
   EVALUATOR_NETWORK_POLICIES,
+  MAINNET_EVALUATOR_CONFIRMATION,
   commerceContractsSchema,
   isCanonicalApiUrl,
   matchesTarget,
@@ -59,6 +60,7 @@ function env(network: StacksNetworkName) {
     VERIFIER_MODEL: "verifier",
     DATABASE_URL: "postgresql://localhost/test",
     STACKS_API_URL: policy.apiUrl,
+    CONFIRM_MAINNET_EVALUATOR: network === "mainnet" ? MAINNET_EVALUATOR_CONFIRMATION : "",
   };
 }
 
@@ -72,6 +74,7 @@ describe("Fail-closed network matrix", () => {
     const config = loadConfig(env(network));
     expect(safeConfig(config).earnedServiceFeeBps).toBe(200);
     expect(safeConfig(config).commerceGeneration).toBe("service-fee-v6-v5");
+    expect(safeConfig(config).mainnetBroadcastEnabled).toBe(network === "mainnet");
     expect(JSON.stringify(safeConfig(config))).not.toContain(env(network).EVALUATOR_PRIVATE_KEY);
     expect(JSON.stringify(safeConfig(config))).not.toContain(env(network).HERMES_API_KEY);
   });
@@ -92,6 +95,12 @@ describe("Fail-closed network matrix", () => {
     expect(() => loadConfig({ ...env("mainnet"), EVALUATOR_ENV: "qa" })).toThrow();
     expect(() => loadConfig({ ...env("testnet"), STACKS_API_URL: EVALUATOR_NETWORK_POLICIES.mainnet.apiUrl })).toThrow();
     expect(() => loadConfig({ ...env("mainnet"), EVALUATOR_PRINCIPAL: EVALUATOR })).toThrow();
+  });
+
+  it("requires the exact explicit activation only for mainnet", () => {
+    expect(() => loadConfig({ ...env("mainnet"), CONFIRM_MAINNET_EVALUATOR: "" })).toThrow();
+    expect(() => loadConfig({ ...env("mainnet"), CONFIRM_MAINNET_EVALUATOR: "yes" })).toThrow();
+    expect(() => loadConfig({ ...env("testnet"), CONFIRM_MAINNET_EVALUATOR: "" })).not.toThrow();
   });
 
   it.each([

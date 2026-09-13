@@ -10,6 +10,11 @@ names must match. A crossed or unreviewed combination stops startup. The signing
 only `record-decision`; it cannot transfer funds, settle escrow, waive or refund fees, or resolve an
 appeal.
 
+Mainnet also requires the exact non-secret activation acknowledgement
+`CONFIRM_MAINNET_EVALUATOR=enable-record-decision-v6-v5-mainnet`. It is enforced by configuration
+and again by the signing adapter. Its presence does not replace signer isolation, authorization,
+funding checks or a controlled release.
+
 Use a dedicated signer and independent service credentials for each environment. Never install the
 deployer, treasury or appeal-authority key in this service, and never reuse the QA signer in
 production. Store runtime secrets outside Git with mode 600 or an equivalent secret manager.

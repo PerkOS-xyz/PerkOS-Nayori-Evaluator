@@ -29,6 +29,12 @@ The signer derives its principal with the selected network and compares it to th
 address. Its capability remains one function—`record-decision`—on one of two allowlisted contracts,
 with deny-mode post conditions and bounded fees. The network check occurs before nonce lookup.
 
+Mainnet requires the additional non-secret acknowledgement
+`CONFIRM_MAINNET_EVALUATOR=enable-record-decision-v6-v5-mainnet`. Configuration validation and the
+signing adapter both require the exact value. This prevents a routine environment switch from
+silently activating mainnet broadcasts; it is an operational interlock, not authorization by
+itself.
+
 ## Evidence boundary
 
 Operator-owned public HTTPS evidence works on either network with the existing byte, MIME, digest,

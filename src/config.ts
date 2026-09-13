@@ -4,6 +4,7 @@ import {
   hasServiceFees,
   isCanonicalApiUrl,
   isPrincipalForNetwork,
+  MAINNET_EVALUATOR_CONFIRMATION,
   policyForNetwork,
 } from "./contracts.js";
 
@@ -23,6 +24,7 @@ const configSchema = z.object({
   VERIFIER_MODEL: z.string().min(1),
   MIN_DECISION_CONFIDENCE: z.coerce.number().min(0.5).max(1).default(0.85),
   STACKS_API_URL: z.string().url().default("https://api.testnet.hiro.so"),
+  CONFIRM_MAINNET_EVALUATOR: z.string().default(""),
   TRANSACTION_FEE_USTX: z.coerce.number().int().min(1_000).max(100_000).default(5_000),
   INFERENCE_TIMEOUT_MS: z.coerce.number().int().min(10_000).max(600_000).default(240_000),
   DATABASE_URL: z.string().url(),
@@ -52,6 +54,10 @@ const configSchema = z.object({
   }
   if (!isCanonicalApiUrl(config.STACKS_NETWORK, config.STACKS_API_URL)) {
     context.addIssue({ code: "custom", message: "STACKS_API_URL is not the canonical API for STACKS_NETWORK." });
+  }
+  if (config.STACKS_NETWORK === "mainnet" &&
+    config.CONFIRM_MAINNET_EVALUATOR !== MAINNET_EVALUATOR_CONFIRMATION) {
+    context.addIssue({ code: "custom", message: "Explicit mainnet evaluator activation is required." });
   }
   if (config.PRIVATE_EVIDENCE_ENABLED === "true" && (
     policy.privateEvidenceOrigin === null || config.PRIVATE_EVIDENCE_ORIGIN !== policy.privateEvidenceOrigin ||
@@ -87,6 +93,8 @@ export function safeConfig(config: EvaluatorConfig) {
     commerceGeneration: fees ? "service-fee-v6-v5" : "autonomous-v5-v4",
     earnedServiceFeeBps: fees ? 200 : 0,
     evaluatorPrincipal: config.EVALUATOR_PRINCIPAL,
+    mainnetBroadcastEnabled: config.STACKS_NETWORK === "mainnet" &&
+      config.CONFIRM_MAINNET_EVALUATOR === MAINNET_EVALUATOR_CONFIRMATION,
     committedEvaluationsEnabled: config.PUBLIC_COMMITTED_EVALUATIONS === "true",
     privateEvidenceEnabled: config.PRIVATE_EVIDENCE_ENABLED === "true",
     hermesOrigin: new URL(config.HERMES_API_BASE_URL).origin,

@@ -26,6 +26,8 @@ testnet treasury/authority. Production pins the 144-block appeal window, treasur
 
 - `EVALUATOR_ENV`, `STACKS_NETWORK`, both contract IDs and `STACKS_API_URL` must match one exact row
   of the release matrix. Crossed values stop startup.
+- Mainnet additionally requires `CONFIRM_MAINNET_EVALUATOR=enable-record-decision-v6-v5-mainnet`.
+  The configuration parser and signing adapter enforce it independently; QA does not require it.
 - The configured private key must derive exactly to `EVALUATOR_PRINCIPAL` for the selected network.
 - The signer adapter permits only `record-decision`, only for the two selected contracts, with
   deny-mode post conditions and a bounded transaction fee.
@@ -66,6 +68,7 @@ STACKS_NETWORK=mainnet
 STX_COMMERCE_CONTRACT=SP2K7PV5NXBNRV510S6DCA6RFMTFHAF3ZPK6ZSXPH.agentic-commerce-v6
 SBTC_COMMERCE_CONTRACT=SP2K7PV5NXBNRV510S6DCA6RFMTFHAF3ZPK6ZSXPH.sbtc-commerce-v5
 STACKS_API_URL=https://api.hiro.so
+CONFIRM_MAINNET_EVALUATOR=enable-record-decision-v6-v5-mainnet
 ```
 
 Before either service can start, its dedicated evaluator address must be authorized by both selected
@@ -74,8 +77,9 @@ different signer keys and service credentials. The deployer and treasury keys ar
 credentials and must never be installed in this service.
 
 `GET /readyz` returns only safe configuration metadata, including environment, network, contracts,
-generation, fee basis points and evaluator principal. It does not expose credentials and is not
-evidence that a contract transaction succeeded.
+generation, fee basis points, evaluator principal and the boolean `mainnetBroadcastEnabled`. It
+does not expose the configured confirmation or credentials and is not evidence that a contract
+transaction succeeded.
 
 ## Evaluation flow
 

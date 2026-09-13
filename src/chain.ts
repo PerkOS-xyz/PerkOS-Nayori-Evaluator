@@ -12,6 +12,7 @@ import { z } from "zod";
 import {
   commerceContractsSchema,
   isCanonicalApiUrl,
+  MAINNET_EVALUATOR_CONFIRMATION,
   matchesTarget,
   type CommerceContracts,
   type StacksNetworkName,
@@ -69,6 +70,7 @@ export interface StacksDecisionAdapterOptions {
   readonly privateKey: string;
   readonly evaluatorPrincipal: string;
   readonly fee: number;
+  readonly mainnetActivationConfirmation?: string;
 }
 
 export class StacksDecisionAdapter implements RestrictedDecisionAdapter {
@@ -83,6 +85,10 @@ export class StacksDecisionAdapter implements RestrictedDecisionAdapter {
     this.contracts = commerceContractsSchema.parse(options.contracts);
     if (!isCanonicalApiUrl(this.contracts.network, options.apiUrl)) {
       throw new Error("Stacks API does not match the selected network.");
+    }
+    if (this.contracts.network === "mainnet" &&
+      options.mainnetActivationConfirmation !== MAINNET_EVALUATOR_CONFIRMATION) {
+      throw new Error("Explicit mainnet evaluator activation is required.");
     }
     if (!Number.isSafeInteger(options.fee) || options.fee < 1_000 || options.fee > 100_000) {
       throw new Error("Decision gas fee is outside the configured safety range.");

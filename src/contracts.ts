@@ -2,6 +2,7 @@ import { validateStacksAddress } from "@stacks/transactions";
 import { z } from "zod";
 
 export type StacksNetworkName = "testnet" | "mainnet";
+export const MAINNET_EVALUATOR_CONFIRMATION = "enable-record-decision-v6-v5-mainnet";
 
 export const EVALUATOR_NETWORK_POLICIES = {
   testnet: {
