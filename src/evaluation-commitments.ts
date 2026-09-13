@@ -3,6 +3,8 @@
  * Only JSON primitives, lexicographic ASCII keys, ordered arrays and UTF-8.
  * Hashes bind manifests; they do not prove evidence truth or authorize wallet spending.
  */
+import { isContractIdForNetwork, isPrincipalForNetwork } from "./contracts.js";
+
 export interface EvaluationCriterion {
   readonly id: string;
   readonly requirement: string;
@@ -16,7 +18,7 @@ export interface EvaluationEvidence {
   readonly sizeBytes: number;
 }
 export interface CriteriaCommitmentInput {
-  readonly network: "testnet";
+  readonly network: "testnet" | "mainnet";
   readonly asset: "stx" | "sbtc";
   readonly contract: string;
   readonly client: string;
@@ -33,7 +35,6 @@ export interface EvidenceCommitmentInput extends CriteriaCommitmentInput {
 const CRITERIA = "\nnayori-criteria-v1:";
 const EVIDENCE = "ny1:";
 const HASH = /^[0-9a-f]{64}$/;
-const PRINCIPAL = /^ST[A-Z0-9]{20,41}$/;
 function ensure(condition: boolean): asserts condition {
   if (!condition) throw new Error("invalid_evaluation_commitment");
 }
@@ -56,9 +57,10 @@ async function digest(domain: string, value: unknown): Promise<string> {
     byte => byte.toString(16).padStart(2, "0")).join("");
 }
 function criteriaManifest(input: CriteriaCommitmentInput) {
-  ensure(input.network === "testnet" && ["stx", "sbtc"].includes(input.asset));
-  ensure(/^ST[A-Z0-9]{20,41}\.[a-z][a-z0-9-]{0,39}$/.test(input.contract));
-  ensure(PRINCIPAL.test(input.client) && PRINCIPAL.test(input.evaluator) && input.client !== input.evaluator);
+  ensure(["testnet", "mainnet"].includes(input.network) && ["stx", "sbtc"].includes(input.asset));
+  ensure(isContractIdForNetwork(input.contract, input.network));
+  ensure(isPrincipalForNetwork(input.client, input.network) &&
+    isPrincipalForNetwork(input.evaluator, input.network) && input.client !== input.evaluator);
   text(input.description, 512 - CRITERIA.length - 64);
   ensure(/^[\x20-\x7e\n\r\t]+$/.test(input.description) && !input.description.includes("nayori-criteria-"));
   ensure(Array.isArray(input.acceptanceCriteria) && input.acceptanceCriteria.length >= 1 && input.acceptanceCriteria.length <= 20);
@@ -87,7 +89,7 @@ export function parseEvaluationDescription(description: string) {
 export async function prepareEvaluationSubmission(input: EvidenceCommitmentInput) {
   const criteria = await prepareEvaluationJob(input);
   ensure(/^[1-9][0-9]{0,38}$/.test(input.jobId) && BigInt(input.jobId) < 2n ** 128n);
-  ensure(PRINCIPAL.test(input.provider) && ![input.client, input.evaluator].includes(input.provider));
+  ensure(isPrincipalForNetwork(input.provider, input.network) && ![input.client, input.evaluator].includes(input.provider));
   ensure(Array.isArray(input.evidence) && input.evidence.length >= 1 && input.evidence.length <= 50);
   const evidence = input.evidence.map(item => {
     text(item.id, 64); ensure(/^[a-zA-Z0-9._-]+$/.test(item.id));
@@ -112,7 +114,7 @@ export async function prepareEvaluationSubmission(input: EvidenceCommitmentInput
   return { ...criteria, evidenceHash, deliverable };
 }
 export async function evaluationJobId(input: Pick<EvidenceCommitmentInput, "network" | "contract" | "jobId">): Promise<string> {
-  ensure(input.network === "testnet" && /^ST[A-Z0-9]{20,41}\.[a-z][a-z0-9-]{0,39}$/.test(input.contract));
+  ensure(["testnet", "mainnet"].includes(input.network) && isContractIdForNetwork(input.contract, input.network));
   ensure(/^[1-9][0-9]{0,38}$/.test(input.jobId) && BigInt(input.jobId) < 2n ** 128n);
   const hash = await digest("nayori/evaluation-id/v1", {
     network: input.network, contract: input.contract, jobId: input.jobId,

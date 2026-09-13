@@ -1,8 +1,8 @@
 {
   "name": "@perkos/nayori-evaluator",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
-  "description": "Fail-closed autonomous evaluation service for Nayori QA jobs on Stacks.",
+  "description": "Fail-closed autonomous evaluation service for Nayori jobs on Stacks testnet and mainnet.",
   "type": "module",
   "engines": {
     "node": ">=22"
