@@ -44,8 +44,9 @@ testnet treasury/authority. Production pins the 144-block appeal window, treasur
 
 ## Runtime configuration
 
-Use `.env.example` for QA and `.env.production.example` for production as schemas only. Copy values
-to an external mode-600 secret file or the runtime secret manager; never commit populated files.
+Use `.env.example` as the QA schema and the production block below as its documented counterpart.
+Copy values to an external mode-600 secret file or the runtime secret manager; never commit a
+second environment file or populated values.
 
 QA selects:
 
