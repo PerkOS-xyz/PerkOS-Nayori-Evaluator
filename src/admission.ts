@@ -15,7 +15,7 @@ export class InvalidCommitmentRequest extends Error {
 
 export async function parseCommittedRequest(raw: unknown): Promise<EvaluationRequest> {
   try {
-    const request = evaluationRequestSchema.extend({ commitmentVersion: evaluationRequestSchema.shape.commitmentVersion.unwrap() }).strict().parse(raw);
+    const request = evaluationRequestSchema.safeExtend({ commitmentVersion: evaluationRequestSchema.shape.commitmentVersion.unwrap() }).strict().parse(raw);
     const id = await evaluationJobId({ network: request.network, contract: request.contract, jobId: request.jobId });
     if (id !== request.evaluationId) throw new InvalidCommitmentRequest();
     const description = parseEvaluationDescription(request.job.description);

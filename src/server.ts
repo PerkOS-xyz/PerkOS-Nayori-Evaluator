@@ -8,11 +8,12 @@ import { EvaluationBlockedError } from "./evaluator.js";
 import { publicEvaluation } from "./public.js";
 import { HermesInference } from "./inference.js";
 import { EvaluationEngine } from "./evaluator.js";
-import { AllowlistedDecisionRecorder, StacksTestnetDecisionAdapter } from "./chain.js";
+import { AllowlistedDecisionRecorder, StacksDecisionAdapter } from "./chain.js";
 import { EvaluationCoordinator } from "./coordinator.js";
-import { StacksTestnetEligibility } from "./eligibility.js";
+import { StacksEligibility } from "./eligibility.js";
 import { AllowlistedEvidenceLoader } from "./evidence.js";
 import { loadPrivateEvidenceCredentials, privateEvidenceToken } from "./private-evidence.js";
+import { commerceContractsSchema } from "./contracts.js";
 
 export function serviceErrorResponse(error: unknown): {
   readonly status: number;
@@ -64,7 +65,8 @@ async function readJson(request: IncomingMessage): Promise<unknown> {
 
 export async function main(): Promise<void> {
   const config = loadConfig();
-  const contracts = { stxContract: config.STX_COMMERCE_CONTRACT, sbtcContract: config.SBTC_COMMERCE_CONTRACT };
+  const contracts = commerceContractsSchema.parse({ network: config.STACKS_NETWORK,
+    stxContract: config.STX_COMMERCE_CONTRACT, sbtcContract: config.SBTC_COMMERCE_CONTRACT });
   const pool = new Pool({ connectionString: config.DATABASE_URL, max: 5 });
   const store = new PostgresEvaluationStore(pool);
   const publicEnabled = config.PUBLIC_COMMITTED_EVALUATIONS === "true";
@@ -98,19 +100,21 @@ export async function main(): Promise<void> {
     evidenceLoader: new AllowlistedEvidenceLoader(config.EVIDENCE_ALLOWED_ORIGINS.split(",").map(item => item.trim()).filter(Boolean),
       fetch, privateEvidence),
   });
-  const adapter = new StacksTestnetDecisionAdapter({
+  const adapter = new StacksDecisionAdapter({
     contracts,
     apiUrl: config.STACKS_API_URL,
     privateKey: config.EVALUATOR_PRIVATE_KEY,
     evaluatorPrincipal: config.EVALUATOR_PRINCIPAL,
     fee: config.TRANSACTION_FEE_USTX,
+    mainnetActivationConfirmation: config.CONFIRM_MAINNET_EVALUATOR,
   });
   const recorder = new AllowlistedDecisionRecorder({
+    network: config.STACKS_NETWORK,
     stxContract: config.STX_COMMERCE_CONTRACT,
     sbtcContract: config.SBTC_COMMERCE_CONTRACT,
     adapter,
   });
-  const eligibility = new StacksTestnetEligibility({ contracts,
+  const eligibility = new StacksEligibility({ contracts,
     evaluatorPrincipal: config.EVALUATOR_PRINCIPAL, apiUrl: config.STACKS_API_URL,
     committedMinimumBudget: {
       stx: BigInt(config.PUBLIC_EVALUATIONS_MIN_STX), sbtc: BigInt(config.PUBLIC_EVALUATIONS_MIN_SBTC),
@@ -139,7 +143,7 @@ export async function main(): Promise<void> {
     try {
       const url = new URL(request.url ?? "/", "http://localhost");
       if (request.method === "GET" && url.pathname === "/healthz") {
-        send(response, 200, { ok: true, service: "nayori-evaluator", version: "0.1.0" });
+        send(response, 200, { ok: true, service: "nayori-evaluator", version: "0.2.0" });
         return;
       }
       if (request.method === "GET" && url.pathname === "/readyz") {

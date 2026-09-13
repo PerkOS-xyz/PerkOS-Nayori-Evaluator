@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { isContractIdForNetwork, isPrincipalForNetwork } from "./contracts.js";
 
 const hash32 = z
   .string()
@@ -23,20 +24,29 @@ export const evidenceItemSchema = z.object({
 export const evaluationRequestSchema = z.object({
   commitmentVersion: z.literal("1").optional(),
   evaluationId: z.string().uuid(),
-  network: z.literal("testnet"),
+  network: z.enum(["testnet", "mainnet"]),
   asset: z.enum(["stx", "sbtc"]),
-  contract: z.string().regex(/^ST[A-Z0-9]+\.[a-z][a-z0-9-]{0,39}$/),
+  contract: z.string(),
   jobId: z.string().regex(/^[1-9][0-9]*$/),
   job: z.object({
-    client: z.string().startsWith("ST"),
-    provider: z.string().startsWith("ST"),
-    evaluator: z.string().startsWith("ST"),
+    client: z.string(),
+    provider: z.string(),
+    evaluator: z.string(),
     status: z.literal("submitted"),
     reviewDeadlineBurn: z.string().regex(/^[1-9][0-9]*$/),
     description: z.string().min(1).max(512),
   }),
   acceptanceCriteria: z.array(acceptanceCriterionSchema).min(1).max(20),
   evidence: z.array(evidenceItemSchema).min(1).max(50),
+}).superRefine((request, context) => {
+  if (!isContractIdForNetwork(request.contract, request.network)) {
+    context.addIssue({ code: "custom", path: ["contract"], message: "Contract is invalid for the selected network." });
+  }
+  for (const role of ["client", "provider", "evaluator"] as const) {
+    if (!isPrincipalForNetwork(request.job[role], request.network)) {
+      context.addIssue({ code: "custom", path: ["job", role], message: `${role} is invalid for the selected network.` });
+    }
+  }
 });
 
 export const reasonCodeSchema = z.enum([
@@ -79,7 +89,7 @@ export type Verification = z.infer<typeof verificationSchema>;
 
 export interface EvaluationArtifact {
   readonly evaluationId: string;
-  readonly network: "testnet";
+  readonly network: "testnet" | "mainnet";
   readonly asset: "stx" | "sbtc";
   readonly contract: string;
   readonly jobId: string;
