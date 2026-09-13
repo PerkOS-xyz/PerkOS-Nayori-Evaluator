@@ -1,40 +1,121 @@
 # PerkOS Nayori Evaluator
 
-Autonomous evaluation service for Nayori agent-commerce jobs on Stacks. Source is public;
-processing remains QA/testnet-only. The existing mode is internal/authenticated; an unreleased,
-default-off committed public admission mode is described below.
+Autonomous, fail-closed evaluation service for Nayori agent-commerce jobs on Stacks. It validates
+the submitted job and evidence, obtains a schema-constrained decision from a primary model, requires
+an independent verifier to agree, and then exposes only the allowlisted `record-decision` contract
+call. Recording a decision does not settle or move escrow.
 
-The first release is intentionally restricted to the isolated Stacks testnet environment. It
-accepts structured job evidence internally, runs deterministic validation, asks a primary model
-for a schema-validated decision, requires an independent verifier to agree, and only then permits
-the allowlisted `record-decision` contract call. Recording a decision cannot move escrow.
+The same reviewed source supports QA and production. Environment selection is explicit and the
+complete release tuple is pinned in code; arbitrary deployers, mixed networks and mixed contract
+generations fail during startup.
+
+## Release matrix
+
+| Environment | Network | STX escrow | sBTC escrow | API |
+| --- | --- | --- | --- | --- |
+| QA | Stacks testnet | `ST16EWRC01S1SFWGBP63MW47VY8P3AYFA8VGEBGE5.agentic-commerce-v6` | `ST16EWRC01S1SFWGBP63MW47VY8P3AYFA8VGEBGE5.sbtc-commerce-v5` | `https://api.testnet.hiro.so` |
+| Production | Stacks mainnet | `SP2K7PV5NXBNRV510S6DCA6RFMTFHAF3ZPK6ZSXPH.agentic-commerce-v6` | `SP2K7PV5NXBNRV510S6DCA6RFMTFHAF3ZPK6ZSXPH.sbtc-commerce-v5` | `https://api.hiro.so` |
+
+Both environments require the configured 2% earned-service-fee policy, a 12 Bitcoin burn-block
+review window and the canonical PoX-5 sBTC token. QA pins its three-block appeal window and isolated
+testnet treasury/authority. Production pins the 144-block appeal window, treasury
+`SP1NT1V4X6GQR6T32Z8MSMNECZ6GSWX9HZ81SM1Y8`, and appeal authority
+`SP28DBK3Q89F4KRYGPF51QT0RYEZBPXS4BAQ0ETBH`.
 
 ## Security boundaries
 
-- Hermes runs on the dedicated PerkOS agent host and is reachable only from the QA evaluator host.
-- PerkOS-LLM is consumed only by Hermes and never receives Stacks signer material.
-- The evaluator signer remains on the isolated QA platform host and can call only the allowlisted
-  `record-decision` function on the explicitly configured testnet contract pair.
-- Select autonomous STX v5/sBTC v4 or earned-service-fee STX v6/sBTC v5 under one valid testnet
-  deployer. Mixed generations and arbitrary contracts are rejected; examples retain v5/v4.
-- Full contract/asset/evaluator checks occur before inference. Public chain reads before and after
-  inference verify the submitted job, roles, description, review deadline and exact positive escrow.
-  Fee candidates additionally require initialized 2% policy, QA windows, separate pinned treasury,
-  canonical sBTC and no existing service/settlement/waiver. Stale jobs cannot earn a decision fee.
-- Low confidence, model disagreement, malformed JSON, incomplete criterion coverage and ambiguous
-  evidence fail closed without a transaction.
-- A validated model artifact is recorded as `decision_ready`; a failed chain submission becomes
-  `broadcast_failed`, preserving the hashes without claiming that an on-chain decision exists.
-- Public HTTP routes are read-only by default. The optional committed mode admits exact on-chain
-  manifests asynchronously; it disables the internal processing route instead of bypassing quotas.
-- PostgreSQL enforces one evaluation per `(network, contract, job)` and supports expiring leases.
-- One QA worker serializes evaluation/signing to avoid concurrent nonce use in this process.
-  The lease covers both models, their bounded repairs and chain checks. Run one replica per signer;
-  this is not distributed nonce coordination or a guarantee of exactly-once broadcast.
-- Raw/private evidence has a ciphertext-only persistence column; public artifacts contain bounded
-  explanations and hashes.
+- `EVALUATOR_ENV`, `STACKS_NETWORK`, both contract IDs and `STACKS_API_URL` must match one exact row
+  of the release matrix. Crossed values stop startup.
+- The configured private key must derive exactly to `EVALUATOR_PRINCIPAL` for the selected network.
+- The signer adapter permits only `record-decision`, only for the two selected contracts, with
+  deny-mode post conditions and a bounded transaction fee.
+- Request principals must use the selected network's address family. Asset, contract and network
+  are checked before inference and again before nonce lookup or signing.
+- Public chain reads validate job status, roles, description, review deadline, positive exact
+  escrow, no prior decision, canonical sBTC and the exact service-fee policy.
+- Low confidence, model disagreement, malformed output, incomplete criterion coverage, changed
+  commitments and ambiguous network failures all fail closed without retrying a transaction.
+- The evaluator cannot finalize a decision, settle escrow, waive/refund fees, resolve appeals or
+  sign as the treasury.
+- PostgreSQL enforces one evaluation per `(network, contract, job)` and a single worker per signer.
+  Ambiguous broadcasts require manual nonce and transaction reconciliation.
+- Hermes/PerkOS-LLM receives criteria and verified evidence only. It never receives wallet keys,
+  API bearer tokens, OAuth secrets or database credentials.
 
-## Local verification
+## Runtime configuration
+
+Use `.env.example` for QA and `.env.production.example` for production as schemas only. Copy values
+to an external mode-600 secret file or the runtime secret manager; never commit populated files.
+
+QA selects:
+
+```dotenv
+EVALUATOR_ENV=qa
+STACKS_NETWORK=testnet
+STX_COMMERCE_CONTRACT=ST16EWRC01S1SFWGBP63MW47VY8P3AYFA8VGEBGE5.agentic-commerce-v6
+SBTC_COMMERCE_CONTRACT=ST16EWRC01S1SFWGBP63MW47VY8P3AYFA8VGEBGE5.sbtc-commerce-v5
+STACKS_API_URL=https://api.testnet.hiro.so
+```
+
+Production selects:
+
+```dotenv
+EVALUATOR_ENV=production
+STACKS_NETWORK=mainnet
+STX_COMMERCE_CONTRACT=SP2K7PV5NXBNRV510S6DCA6RFMTFHAF3ZPK6ZSXPH.agentic-commerce-v6
+SBTC_COMMERCE_CONTRACT=SP2K7PV5NXBNRV510S6DCA6RFMTFHAF3ZPK6ZSXPH.sbtc-commerce-v5
+STACKS_API_URL=https://api.hiro.so
+```
+
+Before either service can start, its dedicated evaluator address must be authorized by both selected
+contracts and its signer must have enough STX for transaction fees. QA and production must use
+different signer keys and service credentials. The deployer and treasury keys are not evaluator
+credentials and must never be installed in this service.
+
+`GET /readyz` returns only safe configuration metadata, including environment, network, contracts,
+generation, fee basis points and evaluator principal. It does not expose credentials and is not
+evidence that a contract transaction succeeded.
+
+## Evaluation flow
+
+1. Parse the strict request and verify network-specific principals and contract syntax.
+2. Check the exact asset/network/contract/evaluator allowlist before model inference.
+3. Read the authoritative job, escrow, decision, token and fee policy from Stacks.
+4. For committed requests, verify client criteria and provider evidence commitments and download
+   only bounded, hash-matching UTF-8 evidence from operator allowlisted HTTPS origins.
+5. Run the primary model and one independent verifier with strict schemas and bounded repair.
+6. Repeat the chain eligibility gate to catch deadline or state changes.
+7. Build and broadcast one `record-decision` transaction. Persist `broadcast_failed` rather than
+   claiming success when delivery is ambiguous.
+
+The contract remains authoritative throughout. A decision artifact is not settlement evidence.
+
+## HTTP modes
+
+The default internal mode enables `POST /internal/v1/evaluations` behind a dedicated bearer token.
+With `PUBLIC_COMMITTED_EVALUATIONS=true`, that route is disabled and `POST /v1/evaluations` admits
+only a v1 deterministic commitment generated from the Nayori SDK. Admission returns HTTP 202; it is
+not approval, settlement or a wallet authorization.
+
+Committed mode defaults to 10 admitted jobs per UTC day, five queued/leased jobs, and minimum escrow
+of 100000 micro-STX or 1000 satoshis. One automatic attempt is permitted per job. Queued work
+survives restart; interrupted attempts are quarantined as
+`interrupted_attempt_requires_reconciliation` and are never replayed automatically.
+
+Evidence downloads allow at most five files, 8192 bytes each and 16000 bytes total. Only
+`text/plain` and `application/json` are accepted. Redirects, credentials in URLs, HTML, arbitrary
+hosts, mismatched MIME, size or SHA-256, and invalid UTF-8 are rejected before inference.
+
+### Private evidence
+
+The OAuth-to-S3 private-evidence reader remains QA-only. It requires
+`PRIVATE_EVIDENCE_ORIGIN=https://api.qa.nayori.ai` and an absolute, mode-600, non-symlink OAuth
+client file linked to the QA evaluator wallet with exactly `evidence:read`. Mainnet rejects
+`PRIVATE_EVIDENCE_ENABLED=true` until Platform, OAuth and the production S3 boundary are promoted
+and reviewed together. Production can use explicitly allowlisted public HTTPS evidence origins in
+the meantime.
+
+## Verification
 
 ```bash
 npm ci
@@ -42,101 +123,18 @@ npm run verify
 npm audit --audit-level=high
 ```
 
-Copy `.env.example` to an untracked environment file only in the runtime secret boundary. Never
-commit wallet keys, PerkOS-LLM credentials, database credentials, evidence or receipts.
+The repository's tests cover both valid release tuples, all crossed network/deployer/API/principal
+combinations, signer isolation, exact chain policies, canonical sBTC, request commitments and
+failure semantics. They do not replace a controlled QA rollout, a production canary or an external
+security review.
 
-Production deployment remains disabled until the full isolated QA lifecycle and release manifest
-pass their gates.
+## Release process
 
-## Earned-service-fee QA integration
+`qa` is the integration branch and `main` is production. Build the exact QA commit on the Nayori VPS,
+then validate database migration, liveness, readiness, restart/lock behavior and controlled STX and
+sBTC lifecycles. Promote the same reviewed tree to `main`; create the production evaluator signer
+and runtime configuration separately. Merging this source does not deploy a service or authorize a
+mainnet transaction.
 
-After review and merge, select the pair explicitly in the external QA configuration:
-
-```dotenv
-STACKS_NETWORK=testnet
-STX_COMMERCE_CONTRACT=ST16EWRC01S1SFWGBP63MW47VY8P3AYFA8VGEBGE5.agentic-commerce-v6
-SBTC_COMMERCE_CONTRACT=ST16EWRC01S1SFWGBP63MW47VY8P3AYFA8VGEBGE5.sbtc-commerce-v5
-STACKS_API_URL=https://api.testnet.hiro.so
-```
-
-Keep the existing dedicated evaluator principal/signer, internal credentials and human authority
-separate. `/readyz` reports the selected `commerceGeneration` and `earnedServiceFeeBps`; that is
-configuration evidence, not a confirmed charge. For v6/v5, `record-decision` attests an evaluated
-service and earns the fixed 2% regardless of approve/reject. It **does not transfer money**.
-The contract splits funds only at final settlement. This evaluator cannot finalize, waive a fee,
-refund it, sign for the treasury or resolve an appeal. No extra appeal fee is introduced.
-
-The compatibility change does not switch the running service or application, publish the SDK,
-replace contracts or enable mainnet. After coordinated QA selection, test real buyer/provider
-SDK workflows with the actual evaluator before production promotion. Existing evaluations remain
-readable by their original contract-qualified identities. All controlled QA actors are internal,
-not external adoption or production revenue.
-
-Public reads are paced at three-second intervals and use bounded HTTPS requests to the canonical
-testnet API. State can change after a read; the contract remains authoritative. Evidence URIs and
-acceptance criteria remain untrusted input under the existing model policy; chain preflight does
-does not independently fetch the old internal mode's deliverable contents. Committed mode verifies
-bounded downloaded bytes before either model sees them. Model agreement and tests
-are not an external security review. See the [design](docs/plans/2026-09-06-service-fee-qa-design.md).
-
-## Committed public admission — unreleased QA candidate
-
-With `PUBLIC_COMMITTED_EVALUATIONS=true`, `POST /v1/evaluations` validates a v1 SDK request
-and returns HTTP 202 with its sanitized state. This is admission, not approval or settlement.
-The normal request shape gains mandatory `commitmentVersion: "1"` and a deterministic
-`evaluationId` from the SDK's `evaluationJobId({ network, contract, jobId })`.
-Use SDK `prepareEvaluationJob` before buyer creation and `prepareEvaluationSubmission` before
-provider submission. Criteria bind the client-authored description, network, asset, contract and
-evaluator. Evidence additionally binds provider, job ID and criteria digest. The deliverable is
-36 bytes (`ny1:` + raw SHA-256), within the current contract's 64-byte limit. No new contract is needed.
-
-Any caller may trigger the **already authorized on-chain manifests**. No caller may replace criteria,
-replace the provider's evidence, impersonate a wallet or force a decision. A hash is not a signing
-credential or evidence of truth. Existing roles, budget/escrow, fee policy, canonical sBTC, deadline
-and no-existing-decision checks run at admission and again before/after inference.
-
-Limits default to 10 admitted jobs per UTC day, 5 queued/leased jobs, and minimum escrow of
-100000 micro-STX or 1000 satoshis. Quotas and uniqueness are reserved in one PostgreSQL transaction.
-One automatic attempt per job: repeats return the same record without new inference or requeue.
-Each attempt has two models with at most one schema repair per model. These caps bound work,
-not a guaranteed dollar cost or break-even margin; QA token values are not revenue.
-
-The worker drains the durable queue independently of HTTP and acquires a database-session singleton
-lock. A second public worker refuses startup; loss of its lock connection stops new work.
-Queued work resumes after restart; expired in-progress leases become
-`interrupted_attempt_requires_reconciliation`. Artifacts or ambiguous broadcasts are not retried.
-Reconcile the exact wallet nonce, transaction history and record manually; never delete the record
-to force a duplicate. This does not claim exactly-once network delivery.
-
-Evidence fetching requires operator-owned HTTPS origins in `EVIDENCE_ALLOWED_ORIGINS`:
-no credentials, redirects or arbitrary job-selected hosts. Only UTF-8 text/plain/application/json,
-up to five files, 8192 bytes each, 16000 bytes total, 15-second fetch deadlines. Actual byte count,
-SHA-256 and MIME must match before inference; both models receive the same verified content.
-Keep origin DNS and outbound network policy under operator control; an origin allowlist does not
-replace egress protection against DNS changes. No HTML execution, tools or code execution occurs.
-Model outputs must cover criteria and cite known evidence; an approval cannot contain failed
-criteria or empty references. Human appeal rights and existing settlement authority remain unchanged.
-
-Before rollout: test transaction isolation/quotas against real PostgreSQL, singleton/restart/lock-loss
-behavior, public reverse-proxy limits and two independent participant wallets through real QA
-creation/submission/evaluation/appeal/finalization. Unit/SQL-contract tests are not those deployment
-gates. Keep public mode disabled until they pass. No live endpoint, production service, package
-publication or new transaction is enabled by this source change.
-
-## QA-first release
-
-`qa` is the protected integration branch and `main` is production. The exact QA commit is built on
-the Nayori VPS and must pass database migration, liveness, readiness and retry-semantics checks
-before a release branch may target `main`. Merging code does not activate a production evaluator
-or authorize any mainnet transaction.
-
-## Private QA evidence
-
-QA private evidence is an additional opt-in path. Set `PRIVATE_EVIDENCE_ENABLED=true`, the exact
-`PRIVATE_EVIDENCE_ORIGIN=https://api.qa.nayori.ai`, and an absolute
-`PRIVATE_EVIDENCE_OAUTH_CLIENT_FILE`. That mode-600, non-symlink file must be wallet-linked to the
-configured evaluator principal and contain exactly the `evidence:read` scope. The evaluator accepts
-only canonical Nayori evidence UUID locators, requests a fresh authorized download, fetches only the
-dedicated Nayori QA S3 hostname, and rechecks size, SHA-256, UTF-8 and JSON syntax before inference.
-OAuth is never forwarded to S3. Credentials, signed URLs and raw evidence are not public outputs or
-logs. The feature is disabled by default and does not change contracts.
+See [the dual-network design](docs/plans/2026-09-13-dual-network-evaluator-design.md) and
+[SECURITY.md](SECURITY.md).

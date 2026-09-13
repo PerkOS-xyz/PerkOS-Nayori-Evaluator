@@ -1,5 +1,8 @@
 # Nayori Hermes QA runtime design
 
+> Historical QA design. The current exact QA contracts are v6/v5 and the evaluator now has a
+> separate fail-closed mainnet tuple; see [the current design](2026-09-13-dual-network-evaluator-design.md).
+
 The autonomous evaluator is split across two hosts. `perkos-cloud-01` runs a dedicated Hermes
 profile with a dedicated PerkOS-LLM credential. `perkos-cloud-02` runs the deterministic evaluator,
 PostgreSQL and the Stacks testnet signer. Hermes never receives blockchain signing material.
