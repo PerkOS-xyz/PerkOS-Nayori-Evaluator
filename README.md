@@ -20,7 +20,8 @@ Both environments require the configured 2% earned-service-fee policy, a 12 Bitc
 review window and the canonical PoX-5 sBTC token. QA pins its three-block appeal window and isolated
 testnet treasury/authority. Production pins the 144-block appeal window, treasury
 `SP1NT1V4X6GQR6T32Z8MSMNECZ6GSWX9HZ81SM1Y8`, and appeal authority
-`SP28DBK3Q89F4KRYGPF51QT0RYEZBPXS4BAQ0ETBH`.
+`SP2R584GC8W2A921080TY8CQ8P1GZ6JNXYXS65DA6`. The reviewed production evaluator is
+`SP3GRG5CKEFNYM5BV0NPPHCM51FT176JQ02QWQ9T3`.
 
 ## Security boundaries
 
@@ -68,6 +69,7 @@ STACKS_NETWORK=mainnet
 STX_COMMERCE_CONTRACT=SP2K7PV5NXBNRV510S6DCA6RFMTFHAF3ZPK6ZSXPH.agentic-commerce-v6
 SBTC_COMMERCE_CONTRACT=SP2K7PV5NXBNRV510S6DCA6RFMTFHAF3ZPK6ZSXPH.sbtc-commerce-v5
 STACKS_API_URL=https://api.hiro.so
+EVALUATOR_PRINCIPAL=SP3GRG5CKEFNYM5BV0NPPHCM51FT176JQ02QWQ9T3
 CONFIRM_MAINNET_EVALUATOR=enable-record-decision-v6-v5-mainnet
 ```
 

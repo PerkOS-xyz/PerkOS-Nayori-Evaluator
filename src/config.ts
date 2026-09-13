@@ -52,6 +52,9 @@ const configSchema = z.object({
   if (!isPrincipalForNetwork(config.EVALUATOR_PRINCIPAL, config.STACKS_NETWORK)) {
     context.addIssue({ code: "custom", message: "EVALUATOR_PRINCIPAL is invalid for STACKS_NETWORK." });
   }
+  if (config.EVALUATOR_PRINCIPAL !== policy.evaluator) {
+    context.addIssue({ code: "custom", message: "EVALUATOR_PRINCIPAL does not match the reviewed evaluator for STACKS_NETWORK." });
+  }
   if (!isCanonicalApiUrl(config.STACKS_NETWORK, config.STACKS_API_URL)) {
     context.addIssue({ code: "custom", message: "STACKS_API_URL is not the canonical API for STACKS_NETWORK." });
   }

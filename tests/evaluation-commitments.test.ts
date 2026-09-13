@@ -16,7 +16,7 @@ const mainnetInput = {
   network: "mainnet" as const,
   contract: "SP2K7PV5NXBNRV510S6DCA6RFMTFHAF3ZPK6ZSXPH.sbtc-commerce-v5",
   client: "SP2K7PV5NXBNRV510S6DCA6RFMTFHAF3ZPK6ZSXPH",
-  evaluator: "SP28DBK3Q89F4KRYGPF51QT0RYEZBPXS4BAQ0ETBH",
+  evaluator: "SP3GRG5CKEFNYM5BV0NPPHCM51FT176JQ02QWQ9T3",
   provider: "SP1NT1V4X6GQR6T32Z8MSMNECZ6GSWX9HZ81SM1Y8",
 };
 describe("Nayori v1 wire commitments", () => {
