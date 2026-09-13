@@ -10,9 +10,13 @@ import { AllowlistedDecisionRecorder } from "../src/chain.js";
 import { EvaluationCoordinator } from "../src/coordinator.js";
 import type { EvaluationStore, StoredEvaluation } from "../src/store.js";
 
-const STX_CONTRACT = "ST16EWRC01S1SFWGBP63MW47VY8P3AYFA8VGEBGE5.agentic-commerce-v5";
-const SBTC_CONTRACT = "ST16EWRC01S1SFWGBP63MW47VY8P3AYFA8VGEBGE5.sbtc-commerce-v4";
-const targetOptions = { contracts: { stxContract: STX_CONTRACT, sbtcContract: SBTC_CONTRACT }, evaluatorPrincipal: "ST1EVALUATOR" };
+const STX_CONTRACT = "ST16EWRC01S1SFWGBP63MW47VY8P3AYFA8VGEBGE5.agentic-commerce-v6";
+const SBTC_CONTRACT = "ST16EWRC01S1SFWGBP63MW47VY8P3AYFA8VGEBGE5.sbtc-commerce-v5";
+const CLIENT = "ST16EWRC01S1SFWGBP63MW47VY8P3AYFA8VGEBGE5";
+const PROVIDER = "ST3QBWTA0XSA94YDXT13QFH3ZMSZSM1V4Z645YHT9";
+const EVALUATOR = "STBTXHXFXFGMNPXST7A6XQ1WNGC0V6TB6CDDQZB4";
+const targetOptions = { contracts: { network: "testnet" as const, stxContract: STX_CONTRACT,
+  sbtcContract: SBTC_CONTRACT }, evaluatorPrincipal: EVALUATOR };
 
 function request(overrides: Partial<EvaluationRequest> = {}): EvaluationRequest {
   return {
@@ -22,9 +26,9 @@ function request(overrides: Partial<EvaluationRequest> = {}): EvaluationRequest 
     contract: SBTC_CONTRACT,
     jobId: "7",
     job: {
-      client: "ST1CLIENT",
-      provider: "ST1PROVIDER",
-      evaluator: "ST1EVALUATOR",
+      client: CLIENT,
+      provider: PROVIDER,
+      evaluator: EVALUATOR,
       status: "submitted",
       reviewDeadlineBurn: "12000",
       description: "Return a signed JSON market report.",
@@ -97,7 +101,7 @@ describe("EvaluationEngine", () => {
       await expect(engine.evaluate(request())).rejects.toThrow("criterion_evidence_inconsistent");
     }
   });
-  it("requires isolated testnet inputs and non-zero evidence digests", () => {
+  it("rejects crossed network inputs and zero evidence digests", () => {
     expect(() =>
       evaluationRequestSchema.parse({ ...request(), network: "mainnet" })
     ).toThrow();
@@ -178,6 +182,7 @@ describe("AllowlistedDecisionRecorder", () => {
       jobId: input.jobId,
     }));
     const recorder = new AllowlistedDecisionRecorder({
+      network: "testnet",
       stxContract: STX_CONTRACT,
       sbtcContract: SBTC_CONTRACT,
       adapter: { execute },

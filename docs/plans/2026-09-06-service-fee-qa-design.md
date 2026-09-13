@@ -1,5 +1,8 @@
 # Explicit QA escrow-generation compatibility
 
+> Historical transition design. QA has since selected v6/v5 exclusively. The current QA and
+> production matrix is defined in [the current design](2026-09-13-dual-network-evaluator-design.md).
+
 ## Decision
 
 Keep one evaluator deployment with one explicitly configured contract pair: autonomous STX v5 /

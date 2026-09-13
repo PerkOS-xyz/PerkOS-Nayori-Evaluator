@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+### Dual-network release boundary
+
+- Add one fail-closed QA/production network matrix: the live QA `ST16...` v6/v5 pair and the
+  reviewed mainnet `SP2K...` v6/v5 pair, each pinned to its canonical Hiro API, sBTC token,
+  fee policy, windows, treasury and appeal authority.
+- Validate network-specific principals and commitments before inference; recheck the selected
+  network before nonce lookup, deny-mode signing and broadcast.
+- Add production-safe environment documentation while keeping OAuth-to-S3 private evidence
+  explicitly QA-only until its complete production boundary is promoted separately.
+- Require an explicit mainnet activation acknowledgement in both configuration and the signing
+  adapter, and identify the dual-network service as version 0.2.0.
+- Expand unit coverage across both networks and crossed environment/API/deployer/principal cases.
+
 ### Committed evaluation candidate
 
 - Add default-off asynchronous public admission for exact on-chain client/provider commitments, budget floors, durable daily/queue caps and one automatic attempt per job.

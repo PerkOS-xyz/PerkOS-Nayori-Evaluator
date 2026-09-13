@@ -7,13 +7,20 @@ import {
   getAddressFromPrivateKey,
   makeContractCall,
 } from "@stacks/transactions";
-import { STACKS_TESTNET } from "@stacks/network";
+import { STACKS_MAINNET, STACKS_TESTNET } from "@stacks/network";
 import { z } from "zod";
-import { commerceContractsSchema, isTestnetApiUrl, matchesTarget, type CommerceContracts } from "./contracts.js";
+import {
+  commerceContractsSchema,
+  isCanonicalApiUrl,
+  MAINNET_EVALUATOR_CONFIRMATION,
+  matchesTarget,
+  type CommerceContracts,
+  type StacksNetworkName,
+} from "./contracts.js";
 
 export interface DecisionReceipt {
   readonly txid: string;
-  readonly network: "testnet";
+  readonly network: StacksNetworkName;
   readonly contract: string;
   readonly jobId: string;
 }
@@ -24,7 +31,7 @@ export interface DecisionRecorder {
 
 export interface RestrictedDecisionAdapter {
   execute(input: {
-    readonly network: "testnet";
+    readonly network: StacksNetworkName;
     readonly contract: string;
     readonly functionName: "record-decision";
     readonly jobId: string;
@@ -38,20 +45,15 @@ export class AllowlistedDecisionRecorder implements DecisionRecorder {
   private readonly contracts: CommerceContracts;
   private readonly adapter: RestrictedDecisionAdapter;
 
-  constructor(options: {
-    readonly stxContract: string;
-    readonly sbtcContract: string;
-    readonly adapter: RestrictedDecisionAdapter;
-  }) {
+  constructor(options: CommerceContracts & { readonly adapter: RestrictedDecisionAdapter }) {
     this.contracts = commerceContractsSchema.parse(options);
     this.adapter = options.adapter;
   }
 
   async recordDecision(artifact: EvaluationArtifact): Promise<DecisionReceipt> {
-    if (artifact.network !== "testnet") throw new Error("Only Stacks testnet is allowed.");
-    if (!matchesTarget(this.contracts, artifact)) throw new Error("Asset/contract is not allowlisted.");
+    if (!matchesTarget(this.contracts, artifact)) throw new Error("Asset/contract/network is not allowlisted.");
     return this.adapter.execute({
-      network: "testnet",
+      network: this.contracts.network,
       contract: artifact.contract,
       functionName: "record-decision",
       jobId: artifact.jobId,
@@ -62,34 +64,42 @@ export class AllowlistedDecisionRecorder implements DecisionRecorder {
   }
 }
 
-export interface StacksTestnetDecisionAdapterOptions {
+export interface StacksDecisionAdapterOptions {
   readonly contracts: CommerceContracts;
   readonly apiUrl: string;
   readonly privateKey: string;
   readonly evaluatorPrincipal: string;
   readonly fee: number;
+  readonly mainnetActivationConfirmation?: string;
 }
 
-export class StacksTestnetDecisionAdapter implements RestrictedDecisionAdapter {
+export class StacksDecisionAdapter implements RestrictedDecisionAdapter {
   private readonly contracts: CommerceContracts;
   private readonly apiUrl: string;
   private readonly privateKey: string;
   private readonly evaluatorPrincipal: string;
   private readonly fee: number;
-  private readonly network: typeof STACKS_TESTNET;
+  private readonly network: typeof STACKS_TESTNET | typeof STACKS_MAINNET;
 
-  constructor(options: StacksTestnetDecisionAdapterOptions) {
+  constructor(options: StacksDecisionAdapterOptions) {
     this.contracts = commerceContractsSchema.parse(options.contracts);
-    if (!isTestnetApiUrl(options.apiUrl)) throw new Error("Only the public testnet API is allowed.");
+    if (!isCanonicalApiUrl(this.contracts.network, options.apiUrl)) {
+      throw new Error("Stacks API does not match the selected network.");
+    }
+    if (this.contracts.network === "mainnet" &&
+      options.mainnetActivationConfirmation !== MAINNET_EVALUATOR_CONFIRMATION) {
+      throw new Error("Explicit mainnet evaluator activation is required.");
+    }
     if (!Number.isSafeInteger(options.fee) || options.fee < 1_000 || options.fee > 100_000) {
       throw new Error("Decision gas fee is outside the configured safety range.");
     }
-    const derived = getAddressFromPrivateKey(options.privateKey, "testnet");
+    const derived = getAddressFromPrivateKey(options.privateKey, this.contracts.network);
     if (derived !== options.evaluatorPrincipal) {
       throw new Error("Evaluator signer does not match EVALUATOR_PRINCIPAL.");
     }
     this.apiUrl = options.apiUrl.replace(/\/+$/, "");
-    this.network = { ...STACKS_TESTNET, client: { baseUrl: this.apiUrl,
+    const selected = this.contracts.network === "mainnet" ? STACKS_MAINNET : STACKS_TESTNET;
+    this.network = { ...selected, client: { baseUrl: this.apiUrl,
       fetch: (url, init) => fetch(url, { ...init, redirect: "error", signal: AbortSignal.timeout(15_000) }) } };
     this.privateKey = options.privateKey;
     this.evaluatorPrincipal = options.evaluatorPrincipal;
@@ -97,7 +107,7 @@ export class StacksTestnetDecisionAdapter implements RestrictedDecisionAdapter {
   }
 
   async execute(input: {
-    readonly network: "testnet";
+    readonly network: StacksNetworkName;
     readonly contract: string;
     readonly functionName: "record-decision";
     readonly jobId: string;
@@ -105,10 +115,10 @@ export class StacksTestnetDecisionAdapter implements RestrictedDecisionAdapter {
     readonly evidenceHash: string;
     readonly explanationHash: string;
   }): Promise<DecisionReceipt> {
-    if (input.network !== "testnet" || input.functionName !== "record-decision") {
-      throw new Error("Decision adapter only permits record-decision on Stacks testnet.");
+    if (input.network !== this.contracts.network || input.functionName !== "record-decision") {
+      throw new Error("Decision adapter only permits record-decision on its selected network.");
     }
-    if (![this.contracts.stxContract, this.contracts.sbtcContract].includes(input.contract)) {
+    if (![this.contracts.stxContract, this.contracts.sbtcContract].some(contract => contract === input.contract)) {
       throw new Error("Contract is not allowlisted by the signing adapter.");
     }
     const digest = z.string().regex(/^[0-9a-f]{64}$/).refine(value => value !== "0".repeat(64));
@@ -146,15 +156,13 @@ export class StacksTestnetDecisionAdapter implements RestrictedDecisionAdapter {
     const broadcast = result as { txid?: string; error?: string; reason?: string };
     if (broadcast.error || !broadcast.txid) {
       throw new Error(
-        `Stacks testnet rejected record-decision: ${broadcast.reason ?? broadcast.error ?? "missing txid"}`
+        `Stacks ${this.contracts.network} rejected record-decision: ${broadcast.reason ?? broadcast.error ?? "missing txid"}`
       );
     }
-    const txid = broadcast.txid.startsWith("0x")
-      ? broadcast.txid
-      : `0x${broadcast.txid}`;
+    const txid = broadcast.txid.startsWith("0x") ? broadcast.txid : `0x${broadcast.txid}`;
     return {
       txid,
-      network: "testnet",
+      network: this.contracts.network,
       contract: input.contract,
       jobId: input.jobId,
     };
