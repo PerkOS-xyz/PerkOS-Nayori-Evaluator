@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### Production inference classification
+
+- Use the supported PerkOS-LLM `background_report` workload class for asynchronous evaluation in
+  both environments instead of sending a QA-specific label that the gateway classified as default.
+
 ### Production database safety
 
 - Add an immutable, checksum-pinned, advisory-locked migration runner and keep all DDL authority
