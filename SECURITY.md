@@ -19,6 +19,13 @@ Use a dedicated signer and independent service credentials for each environment.
 deployer, treasury or appeal-authority key in this service, and never reuse the QA signer in
 production. Store runtime secrets outside Git with mode 600 or an equivalent secret manager.
 
+The runtime database role has no DDL, delete or truncate capability. Migrations run only through a
+separate administrative job after an off-host backup succeeds. Applied migration names and SHA-256
+digests are immutable; drift or an incomplete schema prevents Evaluator startup. Hermes has no
+database credential or volume access, so an inference-runtime update cannot migrate or delete data.
+The migration gate also restores every pre-migration dump into a disposable, network-isolated
+PostgreSQL instance and compares the evaluation and migration row counts before allowing DDL.
+
 Hermes receives evidence and criteria only and must not receive any Stacks signer or service secret.
 The default internal mutation route must remain behind the private service boundary. Public
 committed admission is opt-in, quota bounded and cannot authorize wallet spending.

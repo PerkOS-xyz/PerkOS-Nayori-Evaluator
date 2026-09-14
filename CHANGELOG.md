@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+### Production database safety
+
+- Add an immutable, checksum-pinned, advisory-locked migration runner and keep all DDL authority
+  outside the long-running Evaluator process.
+- Add the forward-only schema migration that permits the reviewed `testnet` and `mainnet` network
+  values without rewriting the already-released initial migration.
+- Restrict the runtime role to the exact table and column-level read/write privileges required by
+  the service; it receives no schema creation, delete, truncate or migration authority.
+- Require an encrypted S3 backup, SHA-256 verification and an isolated ephemeral restore drill
+  before the migration gate can run.
+- Add a hardened production Compose reference with a private database network and external
+  persistent PostgreSQL volume. No production deployment or mainnet transaction is implied.
+
 ### Dual-network release boundary
 
 - Add one fail-closed QA/production network matrix: the live QA `ST16...` v6/v5 pair and the
