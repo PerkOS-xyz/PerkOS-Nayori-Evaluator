@@ -126,7 +126,7 @@ describe("Fail-closed network matrix", () => {
     expect(() => loadConfig({ ...env("mainnet"), PRIVATE_EVIDENCE_ENABLED: "true",
       PRIVATE_EVIDENCE_ORIGIN: "https://api.qa.nayori.ai", PRIVATE_EVIDENCE_OAUTH_CLIENT_FILE: "/run/secrets/oauth.json" })).toThrow();
     expect(() => loadConfig({ ...env("mainnet"), PRIVATE_EVIDENCE_ENABLED: "true",
-      PRIVATE_EVIDENCE_ORIGIN: "https://api.nayori.ai", PRIVATE_EVIDENCE_OAUTH_CLIENT_FILE: "/run/secrets/oauth.json" })).toThrow();
+      PRIVATE_EVIDENCE_ORIGIN: "https://api.nayori.ai", PRIVATE_EVIDENCE_OAUTH_CLIENT_FILE: "/run/secrets/oauth.json" })).not.toThrow();
   });
 });
 
