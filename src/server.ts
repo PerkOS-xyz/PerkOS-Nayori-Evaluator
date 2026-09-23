@@ -13,7 +13,7 @@ import { EvaluationCoordinator } from "./coordinator.js";
 import { StacksEligibility } from "./eligibility.js";
 import { AllowlistedEvidenceLoader } from "./evidence.js";
 import { loadPrivateEvidenceCredentials, privateEvidenceToken } from "./private-evidence.js";
-import { commerceContractsSchema } from "./contracts.js";
+import { commerceContractsSchema, policyForNetwork } from "./contracts.js";
 import { loadMigrations, verifyAppliedMigrations } from "./migrations.js";
 
 export function serviceErrorResponse(error: unknown): {
@@ -88,10 +88,12 @@ export async function main(): Promise<void> {
     apiKey: config.HERMES_API_KEY,
     timeoutMs: config.INFERENCE_TIMEOUT_MS,
   });
+  const networkPolicy = policyForNetwork(config.STACKS_NETWORK);
   const privateEvidence = config.PRIVATE_EVIDENCE_ENABLED === "true" ? {
     origin: config.PRIVATE_EVIDENCE_ORIGIN,
+    objectHost: networkPolicy.privateEvidenceObjectHost,
     accessToken: privateEvidenceToken(loadPrivateEvidenceCredentials(config.PRIVATE_EVIDENCE_OAUTH_CLIENT_FILE,
-      config.EVALUATOR_PRINCIPAL)),
+      config.EVALUATOR_PRINCIPAL, networkPolicy.privateEvidenceTokenEndpoint)),
   } : undefined;
   const engine = new EvaluationEngine({
     contracts, evaluatorPrincipal: config.EVALUATOR_PRINCIPAL,

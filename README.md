@@ -119,12 +119,13 @@ hosts, mismatched MIME, size or SHA-256, and invalid UTF-8 are rejected before i
 
 ### Private evidence
 
-The OAuth-to-S3 private-evidence reader remains QA-only. It requires
-`PRIVATE_EVIDENCE_ORIGIN=https://api.qa.nayori.ai` and an absolute, mode-600, non-symlink OAuth
-client file linked to the QA evaluator wallet with exactly `evidence:read`. Mainnet rejects
-`PRIVATE_EVIDENCE_ENABLED=true` until Platform, OAuth and the production S3 boundary are promoted
-and reviewed together. Production can use explicitly allowlisted public HTTPS evidence origins in
-the meantime.
+The OAuth-to-S3 reader supports two exact tuples: QA uses `https://api.qa.nayori.ai` and production
+uses `https://api.nayori.ai`. Each tuple pins its matching OAuth token endpoint and S3 bucket host.
+It requires an absolute, mode-600, non-symlink OAuth client file linked to that environment's
+evaluator wallet with exactly `evidence:read`. Crossed origins, token endpoints, wallets, scopes or
+object hosts fail closed. Production activation does not enable public admission; keep
+`PUBLIC_COMMITTED_EVALUATIONS=false` for the controlled canary. See
+[the production reader design](docs/plans/2026-09-23-production-private-evidence-reader-design.md).
 
 ## Verification
 
