@@ -14,6 +14,7 @@ import { StacksEligibility } from "./eligibility.js";
 import { AllowlistedEvidenceLoader } from "./evidence.js";
 import { loadPrivateEvidenceCredentials, privateEvidenceToken } from "./private-evidence.js";
 import { commerceContractsSchema } from "./contracts.js";
+import { loadMigrations, verifyAppliedMigrations } from "./migrations.js";
 
 export function serviceErrorResponse(error: unknown): {
   readonly status: number;
@@ -68,6 +69,7 @@ export async function main(): Promise<void> {
   const contracts = commerceContractsSchema.parse({ network: config.STACKS_NETWORK,
     stxContract: config.STX_COMMERCE_CONTRACT, sbtcContract: config.SBTC_COMMERCE_CONTRACT });
   const pool = new Pool({ connectionString: config.DATABASE_URL, max: 5 });
+  await verifyAppliedMigrations(pool, await loadMigrations());
   const store = new PostgresEvaluationStore(pool);
   const publicEnabled = config.PUBLIC_COMMITTED_EVALUATIONS === "true";
   const stop = new AbortController();

@@ -1,0 +1,54 @@
+name: nayori-evaluator-production
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    env_file:
+      - ${NAYORI_POSTGRES_ENV_FILE:?set an absolute mode-600 PostgreSQL env file}
+    volumes:
+      - nayori-evaluator-postgres:/var/lib/postgresql/data
+    networks: [database]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  migrate:
+    profiles: ["migration"]
+    build: ..
+    command: ["node", "dist/migrate.js"]
+    env_file:
+      - ${NAYORI_DATABASE_ADMIN_ENV_FILE:?set an absolute mode-600 migration env file}
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    networks: [database]
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  evaluator:
+    build: ..
+    restart: unless-stopped
+    env_file:
+      - ${NAYORI_EVALUATOR_ENV_FILE:?set an absolute mode-600 runtime env file}
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    networks: [database, outbound]
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  nayori-evaluator-postgres:
+    external: true
+
+networks:
+  database:
+    internal: true
+  outbound: {}

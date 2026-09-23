@@ -73,7 +73,9 @@ export class HermesInference implements StructuredInference {
           "idempotency-key": options.idempotencyKey,
           "x-hermes-session-id": options.sessionId,
           "x-hermes-session-key": options.sessionId,
-          "x-perkos-workload-class": "nayori_evaluator_qa",
+          // PerkOS-LLM accepts a bounded workload taxonomy. Evaluations are asynchronous,
+          // non-interactive work in both QA and production; never encode an environment here.
+          "x-perkos-workload-class": "background_report",
         },
         body: JSON.stringify({
           model: input.model,
