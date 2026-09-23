@@ -25,10 +25,10 @@ export function contracts(network: StacksNetworkName = "testnet") {
 
 function roles(network: StacksNetworkName) {
   return network === "testnet"
-    ? { client: CLIENT, provider: PROVIDER, evaluator: EVALUATOR }
+    ? { client: CLIENT, provider: PROVIDER, evaluator: EVALUATOR_NETWORK_POLICIES.testnet.evaluator }
     : { client: EVALUATOR_NETWORK_POLICIES.mainnet.deployer,
         provider: EVALUATOR_NETWORK_POLICIES.mainnet.treasury,
-        evaluator: EVALUATOR_NETWORK_POLICIES.mainnet.appealAuthority };
+        evaluator: EVALUATOR_NETWORK_POLICIES.mainnet.evaluator };
 }
 
 export function input(network: StacksNetworkName = "testnet", asset: "stx" | "sbtc" = "stx"): EvaluationRequest {
@@ -95,6 +95,7 @@ describe("Fail-closed network matrix", () => {
     expect(() => loadConfig({ ...env("mainnet"), EVALUATOR_ENV: "qa" })).toThrow();
     expect(() => loadConfig({ ...env("testnet"), STACKS_API_URL: EVALUATOR_NETWORK_POLICIES.mainnet.apiUrl })).toThrow();
     expect(() => loadConfig({ ...env("mainnet"), EVALUATOR_PRINCIPAL: EVALUATOR })).toThrow();
+    expect(() => loadConfig({ ...env("mainnet"), EVALUATOR_PRINCIPAL: EVALUATOR_NETWORK_POLICIES.mainnet.treasury })).toThrow();
   });
 
   it("requires the exact explicit activation only for mainnet", () => {
@@ -125,7 +126,7 @@ describe("Fail-closed network matrix", () => {
     expect(() => loadConfig({ ...env("mainnet"), PRIVATE_EVIDENCE_ENABLED: "true",
       PRIVATE_EVIDENCE_ORIGIN: "https://api.qa.nayori.ai", PRIVATE_EVIDENCE_OAUTH_CLIENT_FILE: "/run/secrets/oauth.json" })).toThrow();
     expect(() => loadConfig({ ...env("mainnet"), PRIVATE_EVIDENCE_ENABLED: "true",
-      PRIVATE_EVIDENCE_ORIGIN: "https://api.nayori.ai", PRIVATE_EVIDENCE_OAUTH_CLIENT_FILE: "/run/secrets/oauth.json" })).toThrow();
+      PRIVATE_EVIDENCE_ORIGIN: "https://api.nayori.ai", PRIVATE_EVIDENCE_OAUTH_CLIENT_FILE: "/run/secrets/oauth.json" })).not.toThrow();
   });
 });
 

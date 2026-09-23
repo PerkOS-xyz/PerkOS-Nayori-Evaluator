@@ -3,19 +3,19 @@ import { isAbsolute } from "node:path";
 import { z } from "zod";
 
 const credentials = z.object({ clientId: z.string().regex(/^ny_oc_[A-Za-z0-9_-]{24}$/),
-  clientSecret: z.string().min(32).max(512), tokenEndpoint: z.literal("https://oauth.qa.nayori.ai/oauth/token"),
+  clientSecret: z.string().min(32).max(512), tokenEndpoint: z.url(),
   walletAddress: z.string(), scopes: z.tuple([z.literal("evidence:read")]) }).strict();
 
 export type PrivateEvidenceCredentials = z.infer<typeof credentials>;
 
-export function loadPrivateEvidenceCredentials(path: string, evaluator: string): PrivateEvidenceCredentials {
+export function loadPrivateEvidenceCredentials(path: string, evaluator: string, tokenEndpoint: string): PrivateEvidenceCredentials {
   if (!isAbsolute(path)) throw Error("invalid_private_evidence_credentials");
   const fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW);
   try {
     const stat = fstatSync(fd);
     if (!stat.isFile() || stat.size > 8192 || (stat.mode & 0o077) !== 0) throw Error("invalid_private_evidence_credentials");
     const value = credentials.parse(JSON.parse(readFileSync(fd, "utf8")));
-    if (value.walletAddress !== evaluator) throw Error("invalid_private_evidence_credentials");
+    if (value.walletAddress !== evaluator || value.tokenEndpoint !== tokenEndpoint) throw Error("invalid_private_evidence_credentials");
     return value;
   } catch { throw Error("invalid_private_evidence_credentials"); }
   finally { closeSync(fd); }

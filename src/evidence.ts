@@ -4,12 +4,17 @@ import { EvaluationBlockedError } from "./evaluator.js";
 
 export interface VerifiedEvidence { readonly id: string; readonly sha256: string; readonly text: string }
 export interface EvidenceLoader { load(request: EvaluationRequest, signal?: AbortSignal): Promise<readonly VerifiedEvidence[]> }
-export interface PrivateEvidenceOptions { readonly origin: string; readonly accessToken: () => Promise<string> }
+export interface PrivateEvidenceOptions {
+  readonly origin: string;
+  readonly objectHost: string;
+  readonly accessToken: () => Promise<string>;
+}
 
 /** Explicit operator origins only. No redirects, tools, HTML execution, private network default or ambient credentials. */
 export class AllowlistedEvidenceLoader implements EvidenceLoader {
   private readonly origins: Set<string>;
   private readonly privateOrigin?: string;
+  private readonly privateObjectHost?: string;
   constructor(origins: readonly string[], private readonly transport: typeof fetch = fetch,
     private readonly privateEvidence?: PrivateEvidenceOptions) {
     this.origins = new Set(origins.map(value => {
@@ -23,8 +28,12 @@ export class AllowlistedEvidenceLoader implements EvidenceLoader {
     }));
     if (privateEvidence) {
       const url = new URL(privateEvidence.origin);
-      if (url.href !== "https://api.qa.nayori.ai/") throw new Error("invalid_private_evidence_origin");
+      if (!["https://api.qa.nayori.ai/", "https://api.nayori.ai/"].includes(url.href) ||
+          !/^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]\.s3\.us-east-1\.amazonaws\.com$/.test(privateEvidence.objectHost)) {
+        throw new Error("invalid_private_evidence_origin");
+      }
       this.privateOrigin = url.origin;
+      this.privateObjectHost = privateEvidence.objectHost;
     }
   }
   async load(request: EvaluationRequest, signal?: AbortSignal): Promise<readonly VerifiedEvidence[]> {
@@ -54,7 +63,7 @@ export class AllowlistedEvidenceLoader implements EvidenceLoader {
         if (!value || typeof value !== "object" || Array.isArray(value) || typeof (value as Record<string, unknown>).url !== "string") fail();
         target = new URL((value as { url: string }).url);
         if (target.protocol !== "https:" || target.username || target.password || target.hash ||
-          !/^perkos-nayori-qa-evidence-[0-9]{12}\.s3(?:\.us-east-1)?\.amazonaws\.com$/.test(target.hostname) ||
+          target.hostname !== this.privateObjectHost ||
           (target.port !== "" && target.port !== "443")) fail();
       }
       const response = await this.transport(target, { redirect: "error", credentials: "omit",

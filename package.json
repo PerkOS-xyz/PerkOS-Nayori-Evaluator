@@ -12,6 +12,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "verify": "npm run typecheck && npm test && npm run build",
+    "migrate": "node dist/migrate.js",
     "start": "node dist/server.js",
     "dev": "tsx src/server.ts"
   },

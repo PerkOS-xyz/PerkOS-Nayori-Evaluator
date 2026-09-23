@@ -20,7 +20,8 @@ Both environments require the configured 2% earned-service-fee policy, a 12 Bitc
 review window and the canonical PoX-5 sBTC token. QA pins its three-block appeal window and isolated
 testnet treasury/authority. Production pins the 144-block appeal window, treasury
 `SP1NT1V4X6GQR6T32Z8MSMNECZ6GSWX9HZ81SM1Y8`, and appeal authority
-`SP28DBK3Q89F4KRYGPF51QT0RYEZBPXS4BAQ0ETBH`.
+`SP2R584GC8W2A921080TY8CQ8P1GZ6JNXYXS65DA6`. The reviewed production evaluator is
+`SP3GRG5CKEFNYM5BV0NPPHCM51FT176JQ02QWQ9T3`.
 
 ## Security boundaries
 
@@ -50,6 +51,10 @@ Use `.env.example` as the QA schema and the production block below as its docume
 Copy values to an external mode-600 secret file or the runtime secret manager; never commit a
 second environment file or populated values.
 
+Database administration is a separate release boundary. The long-running service receives only
+`DATABASE_URL`; the one-shot migration job receives `DATABASE_ADMIN_URL` and
+`DATABASE_RUNTIME_ROLE`. Never place the Stacks signer or Hermes credential in the migration file.
+
 QA selects:
 
 ```dotenv
@@ -68,6 +73,7 @@ STACKS_NETWORK=mainnet
 STX_COMMERCE_CONTRACT=SP2K7PV5NXBNRV510S6DCA6RFMTFHAF3ZPK6ZSXPH.agentic-commerce-v6
 SBTC_COMMERCE_CONTRACT=SP2K7PV5NXBNRV510S6DCA6RFMTFHAF3ZPK6ZSXPH.sbtc-commerce-v5
 STACKS_API_URL=https://api.hiro.so
+EVALUATOR_PRINCIPAL=SP3GRG5CKEFNYM5BV0NPPHCM51FT176JQ02QWQ9T3
 CONFIRM_MAINNET_EVALUATOR=enable-record-decision-v6-v5-mainnet
 ```
 
@@ -113,12 +119,13 @@ hosts, mismatched MIME, size or SHA-256, and invalid UTF-8 are rejected before i
 
 ### Private evidence
 
-The OAuth-to-S3 private-evidence reader remains QA-only. It requires
-`PRIVATE_EVIDENCE_ORIGIN=https://api.qa.nayori.ai` and an absolute, mode-600, non-symlink OAuth
-client file linked to the QA evaluator wallet with exactly `evidence:read`. Mainnet rejects
-`PRIVATE_EVIDENCE_ENABLED=true` until Platform, OAuth and the production S3 boundary are promoted
-and reviewed together. Production can use explicitly allowlisted public HTTPS evidence origins in
-the meantime.
+The OAuth-to-S3 reader supports two exact tuples: QA uses `https://api.qa.nayori.ai` and production
+uses `https://api.nayori.ai`. Each tuple pins its matching OAuth token endpoint and S3 bucket host.
+It requires an absolute, mode-600, non-symlink OAuth client file linked to that environment's
+evaluator wallet with exactly `evidence:read`. Crossed origins, token endpoints, wallets, scopes or
+object hosts fail closed. Production activation does not enable public admission; keep
+`PUBLIC_COMMITTED_EVALUATIONS=false` for the controlled canary. See
+[the production reader design](docs/plans/2026-09-23-production-private-evidence-reader-design.md).
 
 ## Verification
 
@@ -127,6 +134,24 @@ npm ci
 npm run verify
 npm audit --audit-level=high
 ```
+
+Before starting a new release, create and verify an off-host backup, then run migrations explicitly:
+
+```bash
+npm run build
+chmod +x ops/*.sh
+ops/migrate-with-backup.sh \
+  /absolute/path/database-backup.env \
+  /absolute/path/database-admin.env
+```
+
+The migration runner serializes execution with a PostgreSQL advisory lock, verifies immutable
+SHA-256 checksums and applies each forward-only migration transactionally. The Evaluator itself has
+no migration command on startup; it only verifies the exact schema and fails closed on drift.
+The gate uploads an AES-256 server-side-encrypted custom dump to S3, checks its SHA-256 and proves a
+restore in an isolated ephemeral PostgreSQL instance before it invokes the migration runner. See the
+unpopulated examples and hardened deployment topology under `ops/`; all populated files remain
+outside Git with mode 600.
 
 The repository's tests cover both valid release tuples, all crossed network/deployer/API/principal
 combinations, signer isolation, exact chain policies, canonical sBTC, request commitments and
@@ -142,4 +167,4 @@ and runtime configuration separately. Merging this source does not deploy a serv
 mainnet transaction.
 
 See [the dual-network design](docs/plans/2026-09-13-dual-network-evaluator-design.md) and
-[SECURITY.md](SECURITY.md).
+[the production database safety design](docs/plans/2026-09-14-production-database-safety-design.md).

@@ -42,6 +42,7 @@ describe("HermesInference", () => {
       "idempotency-key": "evaluation:primary",
       "x-hermes-session-id": "nayori:evaluation:primary",
       "x-hermes-session-key": "nayori:evaluation:primary",
+      "x-perkos-workload-class": "background_report",
     });
     const body = JSON.parse(String(init?.body)) as { instructions: string };
     expect(body.instructions).toContain("JSON Schema");
