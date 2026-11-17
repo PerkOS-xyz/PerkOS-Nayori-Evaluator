@@ -6,6 +6,7 @@ import {
   commerceContractsSchema,
   hasServiceFees,
   isCanonicalApiUrl,
+  isNextContract,
   matchesTarget,
   policyForNetwork,
   type CommerceContracts,
@@ -14,7 +15,7 @@ import {
 export interface EvaluationEligibility {
   assertEligible(request: EvaluationRequest): Promise<void>;
 }
-type ReadOnly = (contract: string, fn: string, args: ClarityValue[]) => Promise<ClarityValue>;
+export type ReadOnly = (contract: string, fn: string, args: ClarityValue[]) => Promise<ClarityValue>;
 export interface EligibilityOptions {
   readonly contracts: CommerceContracts;
   readonly evaluatorPrincipal: string;
@@ -47,6 +48,19 @@ function some(cv: ClarityValue | undefined): ClarityValue {
 }
 function requireState(condition: boolean, reason: string): asserts condition {
   if (!condition) throw new EvaluationBlockedError(reason);
+}
+
+/** Current Bitcoin burn height from the canonical API, after checking its network id. */
+export async function readBurnHeight(fetcher: typeof fetch, apiUrl: string, networkId: number): Promise<bigint> {
+  const response = await fetcher(`${apiUrl.replace(/\/$/, "")}/v2/info`, {
+    redirect: "error", signal: AbortSignal.timeout(15_000),
+  });
+  if (!response.ok) throw new Error("Public network state unavailable.");
+  const info = await response.json() as { network_id?: unknown; burn_block_height?: unknown };
+  requireState(info.network_id === networkId, "network_mismatch");
+  if (typeof info.burn_block_height !== "number" || !Number.isSafeInteger(info.burn_block_height) ||
+    info.burn_block_height < 0) throw new Error("Invalid burn height.");
+  return BigInt(info.burn_block_height);
 }
 
 /** Serialize public reads across concurrent jobs; never used by the signing/broadcast adapter. */
@@ -92,6 +106,7 @@ export class StacksEligibility implements EvaluationEligibility {
     const networkPolicy = policyForNetwork(this.contracts.network);
     requireState(matchesTarget(this.contracts, request), "contract_not_allowlisted");
     requireState(request.job.evaluator === this.options.evaluatorPrincipal, "evaluator_principal_mismatch");
+    if (isNextContract(this.contracts, request.contract)) return this.assertNextEligible(request);
     const read = (fn: string, args = [Cl.uint(BigInt(request.jobId))]) => this.read(request.contract, fn, args);
     const job = tuple(ok(await read("get-job")));
     requireState(uint(job.status) === 2n, "job_not_submitted");
@@ -146,14 +161,54 @@ export class StacksEligibility implements EvaluationEligibility {
       "fee_state_mismatch");
     }
     // Last read: enforce current burn height after the other sequential reads, never a wall clock estimate.
-    const response = await this.fetcher(`${this.options.apiUrl.replace(/\/$/, "")}/v2/info`, {
-      redirect: "error", signal: AbortSignal.timeout(15_000),
-    });
-    if (!response.ok) throw new Error("Public network state unavailable.");
-    const info = await response.json() as { network_id?: unknown; burn_block_height?: unknown };
-    requireState(info.network_id === networkPolicy.networkId, "network_mismatch");
-    if (typeof info.burn_block_height !== "number" || !Number.isSafeInteger(info.burn_block_height) ||
-      info.burn_block_height < 0) throw new Error("Invalid burn height.");
-    requireState(BigInt(info.burn_block_height) <= uint(some(job["review-deadline"])), "review_window_closed");
+    const burnHeight = await readBurnHeight(this.fetcher, this.options.apiUrl, networkPolicy.networkId);
+    requireState(burnHeight <= uint(some(job["review-deadline"])), "review_window_closed");
+  }
+
+  /**
+   * Next generation (nayori-escrow-*): get-job/get-submission/get-decision return optionals, the
+   * escrow balance is a plain uint, and the review deadline lives in the submission. A job is ready
+   * only at status 4 (submitted) while burn-block-height <= review-deadline. After the window the
+   * evaluator never acts: anyone can record the default approval, which is the keeper's job.
+   */
+  private async assertNextEligible(request: EvaluationRequest): Promise<void> {
+    const read = (fn: string) => this.read(request.contract, fn, [Cl.uint(BigInt(request.jobId))]);
+    const found = await read("get-job");
+    requireState(found.type === ClarityType.OptionalSome, "job_not_found");
+    const job = tuple(found.value);
+    requireState(uint(job.status) === 4n, "job_not_submitted");
+    const submission = tuple(some(await read("get-submission")));
+    const reviewDeadline = uint(submission["review-deadline"]);
+    requireState(principal(job.client) === request.job.client &&
+      principal(some(job.provider)) === request.job.provider &&
+      principal(job.evaluator) === this.options.evaluatorPrincipal &&
+      job.description?.type === ClarityType.StringASCII && job.description.value === request.job.description &&
+      reviewDeadline === BigInt(request.job.reviewDeadlineBurn), "job_snapshot_mismatch");
+    requireState(new Set([request.job.client, request.job.provider, request.job.evaluator]).size === 3,
+      "job_role_collision");
+    const treasury = principal(job.treasury);
+    const authority = principal(job["appeal-authority"]);
+    requireState(treasury !== authority && ![request.job.client, request.job.provider, request.job.evaluator]
+      .some(role => role === treasury || role === authority), "treasury_role_collision");
+    const budget = uint(job.budget);
+    if (request.commitmentVersion === "1") {
+      const minimum = this.options.committedMinimumBudget;
+      requireState(!!minimum && budget >= minimum[request.asset], "committed_budget_below_policy");
+      const description = parseEvaluationDescription(request.job.description);
+      const commitment = await prepareEvaluationSubmission({
+        network: request.network, asset: request.asset, contract: request.contract, jobId: request.jobId,
+        client: request.job.client, provider: request.job.provider, evaluator: request.job.evaluator,
+        description: description.description, acceptanceCriteria: request.acceptanceCriteria, evidence: request.evidence,
+      });
+      requireState(commitment.criteriaHash === description.criteriaHash, "criteria_commitment_mismatch");
+      const deliverable = submission.deliverable;
+      requireState(deliverable?.type === ClarityType.Buffer &&
+        Buffer.from(deliverable.value, "hex").equals(Buffer.from(commitment.deliverable)), "evidence_commitment_mismatch");
+    }
+    requireState(budget > 0n && uint(await read("get-escrow-balance")) === budget, "escrow_budget_mismatch");
+    requireState((await read("get-decision")).type === ClarityType.OptionalNone, "decision_already_exists");
+    const burnHeight = await readBurnHeight(this.fetcher, this.options.apiUrl,
+      policyForNetwork(this.contracts.network).networkId);
+    requireState(burnHeight <= reviewDeadline, "review_window_closed");
   }
 }
