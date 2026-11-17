@@ -3,9 +3,12 @@ import {
   commerceContractsSchema,
   hasServiceFees,
   isCanonicalApiUrl,
+  isNextDeployerForNetwork,
   isPrincipalForNetwork,
   MAINNET_EVALUATOR_CONFIRMATION,
+  nextEscrowContracts,
   policyForNetwork,
+  type CommerceContracts,
 } from "./contracts.js";
 
 const configSchema = z.object({
@@ -37,6 +40,8 @@ const configSchema = z.object({
   PUBLIC_EVALUATIONS_QUEUE_LIMIT: z.coerce.number().int().min(1).max(20).default(5),
   PUBLIC_EVALUATIONS_MIN_STX: z.string().regex(/^[1-9][0-9]{0,20}$/).default("100000"),
   PUBLIC_EVALUATIONS_MIN_SBTC: z.string().regex(/^[1-9][0-9]{0,20}$/).default("1000"),
+  // Next contract generation: off unless set. Standard address of the deployer of nayori-escrow-*.
+  NAYORI_NEXT_DEPLOYER: z.string().default(""),
 }).superRefine((config, context) => {
   const policy = policyForNetwork(config.STACKS_NETWORK);
   if (config.EVALUATOR_ENV !== policy.environment) {
@@ -62,6 +67,9 @@ const configSchema = z.object({
     config.CONFIRM_MAINNET_EVALUATOR !== MAINNET_EVALUATOR_CONFIRMATION) {
     context.addIssue({ code: "custom", message: "Explicit mainnet evaluator activation is required." });
   }
+  if (config.NAYORI_NEXT_DEPLOYER && !isNextDeployerForNetwork(config.NAYORI_NEXT_DEPLOYER, config.STACKS_NETWORK)) {
+    context.addIssue({ code: "custom", message: "NAYORI_NEXT_DEPLOYER is invalid or not enabled for STACKS_NETWORK." });
+  }
   if (config.PRIVATE_EVIDENCE_ENABLED === "true" && (
     policy.privateEvidenceOrigin === null || config.PRIVATE_EVIDENCE_ORIGIN !== policy.privateEvidenceOrigin ||
     !config.PRIVATE_EVIDENCE_OAUTH_CLIENT_FILE.startsWith("/")
@@ -81,12 +89,18 @@ export function evaluationLeaseSeconds(config: Pick<EvaluatorConfig, "INFERENCE_
   return Math.ceil((4 * config.INFERENCE_TIMEOUT_MS + 2 * 8 * 18_000 + 2 * 15_000 + 60_000) / 1000);
 }
 
-export function safeConfig(config: EvaluatorConfig) {
-  const contracts = commerceContractsSchema.parse({
+/** The selected contracts, including the next generation only when NAYORI_NEXT_DEPLOYER is set. */
+export function commerceContractsForConfig(config: EvaluatorConfig): CommerceContracts {
+  return commerceContractsSchema.parse({
     network: config.STACKS_NETWORK,
     stxContract: config.STX_COMMERCE_CONTRACT,
     sbtcContract: config.SBTC_COMMERCE_CONTRACT,
+    ...(config.NAYORI_NEXT_DEPLOYER ? { next: nextEscrowContracts(config.NAYORI_NEXT_DEPLOYER) } : {}),
   });
+}
+
+export function safeConfig(config: EvaluatorConfig) {
+  const contracts = commerceContractsForConfig(config);
   const fees = hasServiceFees(contracts);
   return {
     environment: config.EVALUATOR_ENV,
@@ -100,6 +114,9 @@ export function safeConfig(config: EvaluatorConfig) {
       config.CONFIRM_MAINNET_EVALUATOR === MAINNET_EVALUATOR_CONFIRMATION,
     committedEvaluationsEnabled: config.PUBLIC_COMMITTED_EVALUATIONS === "true",
     privateEvidenceEnabled: config.PRIVATE_EVIDENCE_ENABLED === "true",
+    nextGeneration: contracts.next
+      ? { enabled: true, stxContract: contracts.next.stxContract, sbtcContract: contracts.next.sbtcContract }
+      : { enabled: false },
     hermesOrigin: new URL(config.HERMES_API_BASE_URL).origin,
     primaryModel: config.PRIMARY_MODEL,
     verifierModel: config.VERIFIER_MODEL,

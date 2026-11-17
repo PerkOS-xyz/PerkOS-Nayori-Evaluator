@@ -1,11 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
-import { evaluationLeaseSeconds, loadConfig, safeConfig } from "../src/config.js";
+import { commerceContractsForConfig, evaluationLeaseSeconds, loadConfig, safeConfig } from "../src/config.js";
 import {
   EVALUATOR_NETWORK_POLICIES,
   MAINNET_EVALUATOR_CONFIRMATION,
   commerceContractsSchema,
   isCanonicalApiUrl,
+  isNextContract,
   matchesTarget,
+  nextEscrowContracts,
   type StacksNetworkName,
 } from "../src/contracts.js";
 import { EvaluationEngine } from "../src/evaluator.js";
@@ -157,5 +159,50 @@ describe("Engine exact target before inference", () => {
   it("does not match unknown assets or a crossed network", () => {
     expect(matchesTarget(contracts("testnet"), { ...input("testnet"), asset: "usdcx" })).toBe(false);
     expect(matchesTarget(contracts("testnet"), { ...input("testnet"), network: "mainnet" })).toBe(false);
+  });
+});
+
+describe("Next contract generation configuration", () => {
+  const next = nextEscrowContracts(DEPLOYER);
+
+  it("stays off unless NAYORI_NEXT_DEPLOYER is set", () => {
+    const config = loadConfig(env("testnet"));
+    expect(commerceContractsForConfig(config).next).toBeUndefined();
+    expect(safeConfig(config).nextGeneration).toEqual({ enabled: false });
+    expect(matchesTarget(commerceContractsForConfig(config), { network: "testnet", asset: "stx", contract: next.stxContract })).toBe(false);
+  });
+
+  it("derives both escrows from the configured testnet deployer", () => {
+    const config = loadConfig({ ...env("testnet"), NAYORI_NEXT_DEPLOYER: DEPLOYER });
+    const selected = commerceContractsForConfig(config);
+    expect(selected.next).toEqual({ stxContract: `${DEPLOYER}.nayori-escrow-stx`, sbtcContract: `${DEPLOYER}.nayori-escrow-sbtc` });
+    expect(safeConfig(config).nextGeneration).toEqual({ enabled: true, ...next });
+    expect(matchesTarget(selected, { network: "testnet", asset: "stx", contract: next.stxContract })).toBe(true);
+    expect(matchesTarget(selected, { network: "testnet", asset: "sbtc", contract: next.sbtcContract })).toBe(true);
+    expect(matchesTarget(selected, { network: "testnet", asset: "sbtc", contract: next.stxContract })).toBe(false);
+    expect(isNextContract(selected, next.sbtcContract)).toBe(true);
+    expect(isNextContract(selected, selected.stxContract)).toBe(false);
+    // The current pair keeps working unchanged next to the next generation.
+    expect(matchesTarget(selected, { network: "testnet", asset: "stx", contract: selected.stxContract })).toBe(true);
+  });
+
+  it.each([
+    "SP2K7PV5NXBNRV510S6DCA6RFMTFHAF3ZPK6ZSXPH", `${DEPLOYER}.nayori-escrow-stx`, "not-a-principal", "ST0000",
+  ])("rejects deployer %s on testnet", deployer => {
+    expect(() => loadConfig({ ...env("testnet"), NAYORI_NEXT_DEPLOYER: deployer })).toThrow();
+  });
+
+  it("is not enabled on mainnet until a reviewed deployment is pinned", () => {
+    expect(() => loadConfig({ ...env("mainnet"), NAYORI_NEXT_DEPLOYER: EVALUATOR_NETWORK_POLICIES.mainnet.deployer })).toThrow();
+    expect(() => commerceContractsSchema.parse({ ...contracts("mainnet"),
+      next: nextEscrowContracts(EVALUATOR_NETWORK_POLICIES.mainnet.deployer) })).toThrow();
+  });
+
+  it.each([
+    { stxContract: `${DEPLOYER}.nayori-escrow-stx`, sbtcContract: `${PROVIDER}.nayori-escrow-sbtc` },
+    { stxContract: `${DEPLOYER}.nayori-escrow-sbtc`, sbtcContract: `${DEPLOYER}.nayori-escrow-stx` },
+    { stxContract: `${DEPLOYER}.agentic-commerce-v6`, sbtcContract: `${DEPLOYER}.nayori-escrow-sbtc` },
+  ])("rejects mixed or renamed next escrows %j", pair => {
+    expect(() => commerceContractsSchema.parse({ ...contracts("testnet"), next: pair })).toThrow();
   });
 });

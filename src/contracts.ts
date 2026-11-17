@@ -72,22 +72,63 @@ export function isContractIdForNetwork(value: string, network: StacksNetworkName
     Boolean(name && /^[a-z][a-z0-9-]{0,39}$/.test(name));
 }
 
+/**
+ * Next contract generation (nayori-escrow-stx / nayori-escrow-sbtc). Not deployed yet, so the
+ * deployer comes from configuration and the generation stays off unless it is set. Until a reviewed
+ * mainnet deployment is pinned in code, it is accepted on testnet only.
+ */
+export const NAYORI_NEXT_ESCROW_NAMES = { stx: "nayori-escrow-stx", sbtc: "nayori-escrow-sbtc" } as const;
+export const NAYORI_NEXT_NETWORKS: readonly StacksNetworkName[] = ["testnet"];
+
+export interface NextEscrowContracts {
+  readonly stxContract: string;
+  readonly sbtcContract: string;
+}
+
+export function nextEscrowContracts(deployer: string): NextEscrowContracts {
+  return {
+    stxContract: `${deployer}.${NAYORI_NEXT_ESCROW_NAMES.stx}`,
+    sbtcContract: `${deployer}.${NAYORI_NEXT_ESCROW_NAMES.sbtc}`,
+  };
+}
+
+/** A next-generation deployer is a standard address of the selected network, on an enabled network. */
+export function isNextDeployerForNetwork(deployer: string, network: StacksNetworkName): boolean {
+  return NAYORI_NEXT_NETWORKS.includes(network) && isPrincipalForNetwork(deployer, network);
+}
+
 export interface CommerceContracts {
   readonly network: StacksNetworkName;
   readonly stxContract: string;
   readonly sbtcContract: string;
+  readonly next?: NextEscrowContracts | undefined;
 }
 
 export const commerceContractsSchema: z.ZodType<CommerceContracts> = z.object({
   network: z.enum(["testnet", "mainnet"]),
   stxContract: z.string(),
   sbtcContract: z.string(),
+  next: z.object({ stxContract: z.string(), sbtcContract: z.string() }).optional(),
 }).superRefine((contracts, context) => {
   const policy = policyForNetwork(contracts.network);
   if (contracts.stxContract !== policy.stxContract || contracts.sbtcContract !== policy.sbtcContract) {
     context.addIssue({ code: "custom", message: "Contracts do not match the exact network allowlist." });
   }
+  if (contracts.next) {
+    const [deployer = ""] = contracts.next.stxContract.split(".");
+    const expected = nextEscrowContracts(deployer);
+    if (!isNextDeployerForNetwork(deployer, contracts.network) ||
+      contracts.next.stxContract !== expected.stxContract || contracts.next.sbtcContract !== expected.sbtcContract) {
+      context.addIssue({ code: "custom", message: "Next-generation contracts are invalid for the selected network." });
+    }
+  }
 });
+
+/** True only for the configured next-generation escrows; the current pair is never "next". */
+export function isNextContract(contracts: CommerceContracts, contract: string): boolean {
+  return Boolean(contracts.next) &&
+    (contract === contracts.next?.stxContract || contract === contracts.next?.sbtcContract);
+}
 
 export function hasServiceFees(contracts: CommerceContracts): boolean {
   return policyForNetwork(contracts.network).serviceFeeBps > 0;
@@ -100,6 +141,8 @@ export function matchesTarget(contracts: CommerceContracts, target: {
 }): boolean {
   return target.network === contracts.network && (
     (target.asset === "stx" && target.contract === contracts.stxContract) ||
-    (target.asset === "sbtc" && target.contract === contracts.sbtcContract)
+    (target.asset === "sbtc" && target.contract === contracts.sbtcContract) ||
+    (target.asset === "stx" && target.contract === contracts.next?.stxContract) ||
+    (target.asset === "sbtc" && target.contract === contracts.next?.sbtcContract)
   );
 }
