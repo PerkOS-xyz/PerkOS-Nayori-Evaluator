@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### Next contract generation (off by default)
+
+- Add opt-in support for `nayori-escrow-stx` / `nayori-escrow-sbtc` behind `NAYORI_NEXT_DEPLOYER`
+  (testnet only): a read-only job watcher, a next-generation eligibility gate that never acts after
+  the review window, and `record-decision` with one deterministic evidence hash. The current
+  contracts are unchanged.
+
 ### Production inference classification
 
 - Use the supported PerkOS-LLM `background_report` workload class for asynchronous evaluation in

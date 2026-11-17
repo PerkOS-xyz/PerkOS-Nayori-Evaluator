@@ -127,6 +127,29 @@ object hosts fail closed. Production activation does not enable public admission
 `PUBLIC_COMMITTED_EVALUATIONS=false` for the controlled canary. See
 [the production reader design](docs/plans/2026-09-23-production-private-evidence-reader-design.md).
 
+## Next contract generation (upcoming, off by default)
+
+Support for the next Nayori escrows, `<deployer>.nayori-escrow-stx` and
+`<deployer>.nayori-escrow-sbtc`, is upcoming. Those contracts are not deployed yet, so the
+generation stays off unless `NAYORI_NEXT_DEPLOYER` is set, and it is accepted on testnet only until
+a reviewed mainnet deployment is pinned in code. The current pair above keeps working unchanged.
+
+When enabled, the service watches both escrows (read-only, bounded reads per minute) and logs
+`next_job_ready` once for each job whose evaluator is this service, at status 4 (submitted) and
+while `burn-block-height <= review-deadline` from `get-submission`. Evaluation still goes through
+the same intake, models and double eligibility gate. The decision is recorded by the evaluator as
+`tx-sender` with `record-decision (job-id) (decision) (evidence-hash)`: u1 approve, u2 reject, and
+one hash that binds the published evidence and explanation hashes:
+
+```text
+sha256("nayori/decision-evidence/v1\n" +
+  {"contract":…,"decision":"approve"|"reject","evidenceHash":…,"explanationHash":…,"jobId":"…","network":…,"schemaVersion":"1"})
+```
+
+The public evaluation record shows that value as `onChainEvidenceHash`. After the review window
+closes the evaluator never acts; anyone can then record the default approval, which is the
+keeper's job.
+
 ## Verification
 
 ```bash
