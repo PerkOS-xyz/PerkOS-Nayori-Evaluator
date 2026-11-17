@@ -80,6 +80,20 @@ export function pacedStacksReads(transport: typeof fetch): typeof fetch {
   };
 }
 
+/** Read-only contract calls through the canonical API and the given (paced) transport. */
+export function publicReadOnly(network: CommerceContracts["network"], apiUrl: string, sender: string,
+  fetcher: typeof fetch): ReadOnly {
+  return async (contract, functionName, functionArgs) => {
+    const [contractAddress, contractName] = contract.split(".");
+    return fetchCallReadOnlyFunction({
+      contractAddress: contractAddress!, contractName: contractName!, functionName, functionArgs,
+      senderAddress: sender, network,
+      client: { baseUrl: apiUrl.replace(/\/$/, ""), fetch: (url, init) =>
+        fetcher(url, { ...init, redirect: "error", signal: AbortSignal.timeout(15_000) }) },
+    });
+  };
+}
+
 /** Public reads only. The contract is still authoritative if state changes after this check. */
 export class StacksEligibility implements EvaluationEligibility {
   private readonly contracts: CommerceContracts;
@@ -92,15 +106,8 @@ export class StacksEligibility implements EvaluationEligibility {
       throw new Error("Stacks API does not match the selected network.");
     }
     this.fetcher = pacedStacksReads(options.fetch ?? fetch);
-    this.read = options.readOnly ?? (async (contract, functionName, functionArgs) => {
-      const [contractAddress, contractName] = contract.split(".");
-      return fetchCallReadOnlyFunction({
-        contractAddress: contractAddress!, contractName: contractName!, functionName, functionArgs,
-        senderAddress: options.evaluatorPrincipal, network: this.contracts.network,
-        client: { baseUrl: options.apiUrl.replace(/\/$/, ""), fetch: (url, init) =>
-          this.fetcher(url, { ...init, redirect: "error", signal: AbortSignal.timeout(15_000) }) },
-      });
-    });
+    this.read = options.readOnly ?? publicReadOnly(this.contracts.network, options.apiUrl,
+      options.evaluatorPrincipal, this.fetcher);
   }
 
   async assertEligible(request: EvaluationRequest): Promise<void> {
