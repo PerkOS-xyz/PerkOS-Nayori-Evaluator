@@ -11,6 +11,7 @@ import {
   policyForNetwork,
   type CommerceContracts,
 } from "./contracts.js";
+import { NAYORI_NEXT_STATUS } from "./next-generation.js";
 
 export interface EvaluationEligibility {
   assertEligible(request: EvaluationRequest): Promise<void>;
@@ -176,7 +177,7 @@ export class StacksEligibility implements EvaluationEligibility {
     const found = await read("get-job");
     requireState(found.type === ClarityType.OptionalSome, "job_not_found");
     const job = tuple(found.value);
-    requireState(uint(job.status) === 4n, "job_not_submitted");
+    requireState(uint(job.status) === NAYORI_NEXT_STATUS.submitted, "job_not_submitted");
     const submission = tuple(some(await read("get-submission")));
     const reviewDeadline = uint(submission["review-deadline"]);
     requireState(principal(job.client) === request.job.client &&
