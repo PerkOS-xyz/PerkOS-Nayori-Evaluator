@@ -1,4 +1,5 @@
 import type { StoredEvaluation } from "./store.js";
+import { isNextEscrowName, nextDecisionEvidenceHash } from "./next-generation.js";
 
 export function publicEvaluation(record: StoredEvaluation) {
   return {
@@ -16,6 +17,10 @@ export function publicEvaluation(record: StoredEvaluation) {
           publicExplanation: record.artifact.publicExplanation,
           evidenceHash: record.artifact.evidenceHash,
           explanationHash: record.artifact.explanationHash,
+          // Next generation records one hash on chain; publish it so anyone can match the decision.
+          ...(isNextEscrowName(record.artifact.contract)
+            ? { onChainEvidenceHash: nextDecisionEvidenceHash(record.artifact) }
+            : {}),
           policyVersion: record.artifact.policyVersion,
           promptVersion: record.artifact.promptVersion,
         }
