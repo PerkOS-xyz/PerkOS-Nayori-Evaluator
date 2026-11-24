@@ -2,12 +2,20 @@
 
 ## Unreleased
 
-### Next contract generation (off by default)
+### Next contract generation (live, opt-in)
 
-- Add opt-in support for `nayori-escrow-stx` / `nayori-escrow-sbtc` behind `NAYORI_NEXT_DEPLOYER`
-  (testnet only): a read-only job watcher, a next-generation eligibility gate that never acts after
-  the review window, and `record-decision` with one deterministic evidence hash. The current
-  contracts are unchanged.
+- Add support for `nayori-escrow-stx` / `nayori-escrow-sbtc`: a read-only job watcher, a
+  next-generation eligibility gate that never acts after the review window, and `record-decision`
+  with one deterministic evidence hash. The current contracts are unchanged.
+- Pin the live deployments of 2026-11-24 in code: testnet `ST3MRPNX0VNWYRSJ07PNTASE5BZ9K5XE57ARZ39DY`
+  and mainnet `SP2BM4WCNQM286PFHPGA1BG2YXER0PCG1PKQ5MF1X`, with their treasury and appeal authority.
+  A job with other roles is not evaluated.
+- Turn the generation on with `NAYORI_NEXT_ENABLED=true` (default `false`). `NAYORI_NEXT_DEPLOYER`
+  is now only an optional cross-check that must equal the pinned deployer.
+- Accept the generation on mainnet with its own activation,
+  `CONFIRM_MAINNET_NEXT_EVALUATOR=enable-record-decision-nayori-escrow-mainnet`, checked by the
+  configuration and the signing adapter on top of `CONFIRM_MAINNET_EVALUATOR`.
+- `GET /readyz` reports the next deployer and `nextGeneration.mainnetBroadcastEnabled`.
 
 ### Production inference classification
 

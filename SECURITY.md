@@ -15,6 +15,13 @@ Mainnet also requires the exact non-secret activation acknowledgement
 and again by the signing adapter. Its presence does not replace signer isolation, authorization,
 funding checks or a controlled release.
 
+The next contract generation (`nayori-escrow-stx` / `nayori-escrow-sbtc`) is off unless
+`NAYORI_NEXT_ENABLED=true`. Its deployer, treasury and appeal authority are pinned per network in
+code; `NAYORI_NEXT_DEPLOYER` can only repeat the pinned deployer. On mainnet it needs its own
+acknowledgement, `CONFIRM_MAINNET_NEXT_EVALUATOR=enable-record-decision-nayori-escrow-mainnet`,
+enforced by configuration and by the signing adapter, in addition to the one above. The signer
+still exposes only `record-decision`.
+
 Use a dedicated signer and independent service credentials for each environment. Never install the
 deployer, treasury or appeal-authority key in this service, and never reuse the QA signer in
 production. Store runtime secrets outside Git with mode 600 or an equivalent secret manager.
