@@ -8,6 +8,7 @@ import {
   isCanonicalApiUrl,
   isNextContract,
   matchesTarget,
+  NAYORI_NEXT_ROLES,
   policyForNetwork,
   type CommerceContracts,
 } from "./contracts.js";
@@ -198,6 +199,8 @@ export class StacksEligibility implements EvaluationEligibility {
     const authority = principal(job["appeal-authority"]);
     requireState(treasury !== authority && ![request.job.client, request.job.provider, request.job.evaluator]
       .some(role => role === treasury || role === authority), "treasury_role_collision");
+    const roles = NAYORI_NEXT_ROLES[this.contracts.network];
+    requireState(treasury === roles.treasury && authority === roles.appealAuthority, "next_roles_mismatch");
     const budget = uint(job.budget);
     if (request.commitmentVersion === "1") {
       const minimum = this.options.committedMinimumBudget;

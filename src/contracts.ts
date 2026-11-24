@@ -87,6 +87,24 @@ export const NAYORI_NEXT_DEPLOYERS: Readonly<Record<StacksNetworkName, string>> 
   mainnet: "SP2BM4WCNQM286PFHPGA1BG2YXER0PCG1PKQ5MF1X",
 };
 export const NAYORI_NEXT_NETWORKS: readonly StacksNetworkName[] = ["testnet", "mainnet"];
+/**
+ * Treasury and appeal authority of each next deployment (nayori-roles at deploy time; each job keeps
+ * a snapshot). Like the current release tuple, a job with other roles is not evaluated, so a role
+ * handover needs a reviewed update here. Mainnet roles are multisig vaults.
+ */
+export const NAYORI_NEXT_ROLES: Readonly<Record<StacksNetworkName, {
+  readonly treasury: string;
+  readonly appealAuthority: string;
+}>> = {
+  testnet: {
+    treasury: "STHV38DZX23VB42EX9PE44S3WCC20DNC3V62T4N3",
+    appealAuthority: "ST12SP3EXFGP6GNK0WJ9GKJ2NSHE9243MHG4JBHPS",
+  },
+  mainnet: {
+    treasury: "SMFE58EKCK5ZPD7YCYM1CQY7K3H8SEXQH7C3YT8S",
+    appealAuthority: "SM3950RVR364J25ZRFFNHB5TCNJ7VKPKKGD4N2RP9",
+  },
+};
 
 export interface NextEscrowContracts {
   readonly stxContract: string;
