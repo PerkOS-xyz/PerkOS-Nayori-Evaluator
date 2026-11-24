@@ -12,11 +12,14 @@ import { z } from "zod";
 import {
   commerceContractsSchema,
   isCanonicalApiUrl,
+  isNextContract,
   MAINNET_EVALUATOR_CONFIRMATION,
+  MAINNET_NEXT_EVALUATOR_CONFIRMATION,
   matchesTarget,
   type CommerceContracts,
   type StacksNetworkName,
 } from "./contracts.js";
+import { nextDecisionEvidenceHash } from "./next-generation.js";
 
 export interface DecisionReceipt {
   readonly txid: string;
@@ -71,6 +74,8 @@ export interface StacksDecisionAdapterOptions {
   readonly evaluatorPrincipal: string;
   readonly fee: number;
   readonly mainnetActivationConfirmation?: string;
+  /** Required on mainnet when the next escrows are configured; separate from the v6/v5 one. */
+  readonly mainnetNextActivationConfirmation?: string;
 }
 
 export class StacksDecisionAdapter implements RestrictedDecisionAdapter {
@@ -89,6 +94,10 @@ export class StacksDecisionAdapter implements RestrictedDecisionAdapter {
     if (this.contracts.network === "mainnet" &&
       options.mainnetActivationConfirmation !== MAINNET_EVALUATOR_CONFIRMATION) {
       throw new Error("Explicit mainnet evaluator activation is required.");
+    }
+    if (this.contracts.network === "mainnet" && this.contracts.next &&
+      options.mainnetNextActivationConfirmation !== MAINNET_NEXT_EVALUATOR_CONFIRMATION) {
+      throw new Error("Explicit mainnet activation of the next contract generation is required.");
     }
     if (!Number.isSafeInteger(options.fee) || options.fee < 1_000 || options.fee > 100_000) {
       throw new Error("Decision gas fee is outside the configured safety range.");
@@ -118,7 +127,8 @@ export class StacksDecisionAdapter implements RestrictedDecisionAdapter {
     if (input.network !== this.contracts.network || input.functionName !== "record-decision") {
       throw new Error("Decision adapter only permits record-decision on its selected network.");
     }
-    if (![this.contracts.stxContract, this.contracts.sbtcContract].some(contract => contract === input.contract)) {
+    const next = isNextContract(this.contracts, input.contract);
+    if (!next && ![this.contracts.stxContract, this.contracts.sbtcContract].some(contract => contract === input.contract)) {
       throw new Error("Contract is not allowlisted by the signing adapter.");
     }
     const digest = z.string().regex(/^[0-9a-f]{64}$/).refine(value => value !== "0".repeat(64));
@@ -136,7 +146,13 @@ export class StacksDecisionAdapter implements RestrictedDecisionAdapter {
       contractAddress,
       contractName,
       functionName: "record-decision",
-      functionArgs: [
+      // Next generation: record-decision (job-id uint) (decision uint) (evidence-hash (buff 32)),
+      // called directly by the job's evaluator as tx-sender. Its one hash binds both current hashes.
+      functionArgs: next ? [
+        Cl.uint(BigInt(input.jobId)),
+        Cl.uint(input.decision === "approve" ? 1 : 2),
+        Cl.bufferFromHex(nextDecisionEvidenceHash(input)),
+      ] : [
         Cl.uint(BigInt(input.jobId)),
         Cl.uint(input.decision === "approve" ? 1 : 2),
         Cl.bufferFromHex(input.evidenceHash),

@@ -1,7 +1,7 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { timingSafeEqual } from "node:crypto";
 import { Pool } from "pg";
-import { evaluationLeaseSeconds, loadConfig, safeConfig } from "./config.js";
+import { commerceContractsForConfig, evaluationLeaseSeconds, loadConfig, safeConfig } from "./config.js";
 import { AdmissionLimitError, EvaluationConflictError, PostgresEvaluationStore } from "./store.js";
 import { InvalidCommitmentRequest, admitEvaluation, drainCommitted } from "./admission.js";
 import { EvaluationBlockedError } from "./evaluator.js";
@@ -13,7 +13,8 @@ import { EvaluationCoordinator } from "./coordinator.js";
 import { StacksEligibility } from "./eligibility.js";
 import { AllowlistedEvidenceLoader } from "./evidence.js";
 import { loadPrivateEvidenceCredentials, privateEvidenceToken } from "./private-evidence.js";
-import { commerceContractsSchema, policyForNetwork } from "./contracts.js";
+import { policyForNetwork } from "./contracts.js";
+import { NextJobWatcher } from "./next-watcher.js";
 import { loadMigrations, verifyAppliedMigrations } from "./migrations.js";
 
 export function serviceErrorResponse(error: unknown): {
@@ -66,8 +67,8 @@ async function readJson(request: IncomingMessage): Promise<unknown> {
 
 export async function main(): Promise<void> {
   const config = loadConfig();
-  const contracts = commerceContractsSchema.parse({ network: config.STACKS_NETWORK,
-    stxContract: config.STX_COMMERCE_CONTRACT, sbtcContract: config.SBTC_COMMERCE_CONTRACT });
+  // Includes the pinned next escrows only when NAYORI_NEXT_ENABLED=true (off by default).
+  const contracts = commerceContractsForConfig(config);
   const pool = new Pool({ connectionString: config.DATABASE_URL, max: 5 });
   await verifyAppliedMigrations(pool, await loadMigrations());
   const store = new PostgresEvaluationStore(pool);
@@ -111,13 +112,9 @@ export async function main(): Promise<void> {
     evaluatorPrincipal: config.EVALUATOR_PRINCIPAL,
     fee: config.TRANSACTION_FEE_USTX,
     mainnetActivationConfirmation: config.CONFIRM_MAINNET_EVALUATOR,
+    mainnetNextActivationConfirmation: config.CONFIRM_MAINNET_NEXT_EVALUATOR,
   });
-  const recorder = new AllowlistedDecisionRecorder({
-    network: config.STACKS_NETWORK,
-    stxContract: config.STX_COMMERCE_CONTRACT,
-    sbtcContract: config.SBTC_COMMERCE_CONTRACT,
-    adapter,
-  });
+  const recorder = new AllowlistedDecisionRecorder({ ...contracts, adapter });
   const eligibility = new StacksEligibility({ contracts,
     evaluatorPrincipal: config.EVALUATOR_PRINCIPAL, apiUrl: config.STACKS_API_URL,
     committedMinimumBudget: {
@@ -143,6 +140,21 @@ export async function main(): Promise<void> {
   };
   const timer = publicEnabled ? setInterval(tick, 5000) : undefined;
   tick(); // Recover queued jobs after restart without a new HTTP request.
+  // Next generation: read-only watch for submitted jobs assigned to this evaluator. It only reports
+  // them (once each); evaluation still runs through the intake above with the eligibility gate.
+  const watcher = contracts.next ? new NextJobWatcher({ contracts,
+    evaluatorPrincipal: config.EVALUATOR_PRINCIPAL, apiUrl: config.STACKS_API_URL }) : undefined;
+  let watching = false;
+  const watch = () => {
+    if (!watcher || watching || stop.signal.aborted) return;
+    watching = true;
+    watcher.scan().then(
+      jobs => jobs.forEach(job => console.log(JSON.stringify({ event: "next_job_ready", ...job }))),
+      () => console.log(JSON.stringify({ event: "next_watch_failed" })))
+      .finally(() => { watching = false; });
+  };
+  const watchTimer = watcher ? setInterval(watch, 60_000) : undefined;
+  watch();
   const server = createServer(async (request, response) => {
     try {
       const url = new URL(request.url ?? "/", "http://localhost");
@@ -207,6 +219,7 @@ export async function main(): Promise<void> {
   const shutdown = async () => {
     stop.abort();
     if (timer) clearInterval(timer);
+    if (watchTimer) clearInterval(watchTimer);
     await new Promise<void>(resolve => server.close(() => resolve()));
     await worker;
     lock?.release();

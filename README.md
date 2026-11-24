@@ -30,8 +30,9 @@ testnet treasury/authority. Production pins the 144-block appeal window, treasur
 - Mainnet additionally requires `CONFIRM_MAINNET_EVALUATOR=enable-record-decision-v6-v5-mainnet`.
   The configuration parser and signing adapter enforce it independently; QA does not require it.
 - The configured private key must derive exactly to `EVALUATOR_PRINCIPAL` for the selected network.
-- The signer adapter permits only `record-decision`, only for the two selected contracts, with
-  deny-mode post conditions and a bounded transaction fee.
+- The signer adapter permits only `record-decision`, only for the two selected contracts (plus the
+  two pinned next escrows when that generation is enabled), with deny-mode post conditions and a
+  bounded transaction fee.
 - Request principals must use the selected network's address family. Asset, contract and network
   are checked before inference and again before nonce lookup or signing.
 - Public chain reads validate job status, roles, description, review deadline, positive exact
@@ -126,6 +127,61 @@ evaluator wallet with exactly `evidence:read`. Crossed origins, token endpoints,
 object hosts fail closed. Production activation does not enable public admission; keep
 `PUBLIC_COMMITTED_EVALUATIONS=false` for the controlled canary. See
 [the production reader design](docs/plans/2026-09-23-production-private-evidence-reader-design.md).
+
+## Next contract generation (live, opt-in)
+
+The next Nayori escrows went live on 2026-11-24. Their deployers are pinned in code like the current
+release tuple; each deployer has no powers over the contracts, and the roles live in `nayori-roles`.
+
+| Network | Deployer | Treasury | Appeal authority |
+| --- | --- | --- | --- |
+| Stacks testnet | `ST3MRPNX0VNWYRSJ07PNTASE5BZ9K5XE57ARZ39DY` | `STHV38DZX23VB42EX9PE44S3WCC20DNC3V62T4N3` | `ST12SP3EXFGP6GNK0WJ9GKJ2NSHE9243MHG4JBHPS` |
+| Stacks mainnet | `SP2BM4WCNQM286PFHPGA1BG2YXER0PCG1PKQ5MF1X` | `SMFE58EKCK5ZPD7YCYM1CQY7K3H8SEXQH7C3YT8S` (multisig) | `SM3950RVR364J25ZRFFNHB5TCNJ7VKPKKGD4N2RP9` (multisig) |
+
+The escrows are `<deployer>.nayori-escrow-stx` and `<deployer>.nayori-escrow-sbtc`. The current pair
+above keeps working unchanged next to them.
+
+The generation stays off until it is turned on explicitly, so a new image never changes what a
+running service signs for:
+
+```dotenv
+# QA (testnet)
+NAYORI_NEXT_ENABLED=true
+
+# Production (mainnet): also its own activation, on top of CONFIRM_MAINNET_EVALUATOR
+NAYORI_NEXT_ENABLED=true
+CONFIRM_MAINNET_NEXT_EVALUATOR=enable-record-decision-nayori-escrow-mainnet
+```
+
+- `NAYORI_NEXT_ENABLED` accepts only `true` or `false` (default `false`).
+- `NAYORI_NEXT_DEPLOYER` is optional. When set it must equal the pinned deployer of
+  `STACKS_NETWORK` and needs `NAYORI_NEXT_ENABLED=true`; any other value stops startup. An operator
+  cannot point the evaluator at another contract.
+- On mainnet, the configuration parser and the signing adapter both require
+  `CONFIRM_MAINNET_NEXT_EVALUATOR` whenever the next escrows are selected. It never replaces
+  `CONFIRM_MAINNET_EVALUATOR`, which stays required.
+- A job is evaluated only when its treasury and appeal authority snapshot equal the pinned roles
+  above. A role handover in `nayori-roles` therefore needs a reviewed update of the pins.
+- The next escrows have no evaluator allowlist: each job names its evaluator, and only that
+  principal can record its decision. The evaluator signer still needs STX for transaction fees.
+- `GET /readyz` reports `nextGeneration` with the deployer, both escrows and
+  `mainnetBroadcastEnabled`; it never shows the acknowledgement value.
+
+When enabled, the service watches both escrows (read-only, bounded reads per minute) and logs
+`next_job_ready` once for each job whose evaluator is this service, at status 4 (submitted) and
+while `burn-block-height <= review-deadline` from `get-submission`. Evaluation still goes through
+the same intake, models and double eligibility gate. The decision is recorded by the evaluator as
+`tx-sender` with `record-decision (job-id) (decision) (evidence-hash)`: u1 approve, u2 reject, and
+one hash that binds the published evidence and explanation hashes:
+
+```text
+sha256("nayori/decision-evidence/v1\n" +
+  {"contract":…,"decision":"approve"|"reject","evidenceHash":…,"explanationHash":…,"jobId":"…","network":…,"schemaVersion":"1"})
+```
+
+The public evaluation record shows that value as `onChainEvidenceHash`. After the review window
+closes the evaluator never acts; anyone can then record the default approval, which is the
+keeper's job.
 
 ## Verification
 

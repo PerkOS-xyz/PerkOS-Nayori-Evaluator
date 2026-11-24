@@ -3,6 +3,8 @@ import { z } from "zod";
 
 export type StacksNetworkName = "testnet" | "mainnet";
 export const MAINNET_EVALUATOR_CONFIRMATION = "enable-record-decision-v6-v5-mainnet";
+/** Separate acknowledgement for signing record-decision on the next mainnet escrows. */
+export const MAINNET_NEXT_EVALUATOR_CONFIRMATION = "enable-record-decision-nayori-escrow-mainnet";
 
 export const EVALUATOR_NETWORK_POLICIES = {
   testnet: {
@@ -72,22 +74,94 @@ export function isContractIdForNetwork(value: string, network: StacksNetworkName
     Boolean(name && /^[a-z][a-z0-9-]{0,39}$/.test(name));
 }
 
+/**
+ * Next contract generation (nayori-escrow-stx / nayori-escrow-sbtc), live on 2026-11-24. The
+ * deployer of each network is pinned here like the current release tuple; the deployer has no
+ * powers over the contracts (roles live in nayori-roles). The generation is still opt-in through
+ * configuration, and it is accepted only on the networks listed in NAYORI_NEXT_NETWORKS. On mainnet
+ * it also needs its own activation acknowledgement, MAINNET_NEXT_EVALUATOR_CONFIRMATION.
+ */
+export const NAYORI_NEXT_ESCROW_NAMES = { stx: "nayori-escrow-stx", sbtc: "nayori-escrow-sbtc" } as const;
+export const NAYORI_NEXT_DEPLOYERS: Readonly<Record<StacksNetworkName, string>> = {
+  testnet: "ST3MRPNX0VNWYRSJ07PNTASE5BZ9K5XE57ARZ39DY",
+  mainnet: "SP2BM4WCNQM286PFHPGA1BG2YXER0PCG1PKQ5MF1X",
+};
+export const NAYORI_NEXT_NETWORKS: readonly StacksNetworkName[] = ["testnet", "mainnet"];
+/**
+ * Treasury and appeal authority of each next deployment (nayori-roles at deploy time; each job keeps
+ * a snapshot). Like the current release tuple, a job with other roles is not evaluated, so a role
+ * handover needs a reviewed update here. Mainnet roles are multisig vaults.
+ */
+export const NAYORI_NEXT_ROLES: Readonly<Record<StacksNetworkName, {
+  readonly treasury: string;
+  readonly appealAuthority: string;
+}>> = {
+  testnet: {
+    treasury: "STHV38DZX23VB42EX9PE44S3WCC20DNC3V62T4N3",
+    appealAuthority: "ST12SP3EXFGP6GNK0WJ9GKJ2NSHE9243MHG4JBHPS",
+  },
+  mainnet: {
+    treasury: "SMFE58EKCK5ZPD7YCYM1CQY7K3H8SEXQH7C3YT8S",
+    appealAuthority: "SM3950RVR364J25ZRFFNHB5TCNJ7VKPKKGD4N2RP9",
+  },
+};
+
+export interface NextEscrowContracts {
+  readonly stxContract: string;
+  readonly sbtcContract: string;
+}
+
+export function nextEscrowContracts(deployer: string): NextEscrowContracts {
+  return {
+    stxContract: `${deployer}.${NAYORI_NEXT_ESCROW_NAMES.stx}`,
+    sbtcContract: `${deployer}.${NAYORI_NEXT_ESCROW_NAMES.sbtc}`,
+  };
+}
+
+/** The pinned next escrows of an enabled network. */
+export function nextEscrowContractsForNetwork(network: StacksNetworkName): NextEscrowContracts {
+  if (!NAYORI_NEXT_NETWORKS.includes(network)) throw new Error("Next generation is not enabled for this network.");
+  return nextEscrowContracts(NAYORI_NEXT_DEPLOYERS[network]);
+}
+
+/** Only the pinned deployer of an enabled network is accepted; an operator cannot pick another one. */
+export function isNextDeployerForNetwork(deployer: string, network: StacksNetworkName): boolean {
+  return NAYORI_NEXT_NETWORKS.includes(network) && deployer === NAYORI_NEXT_DEPLOYERS[network] &&
+    isPrincipalForNetwork(deployer, network);
+}
+
 export interface CommerceContracts {
   readonly network: StacksNetworkName;
   readonly stxContract: string;
   readonly sbtcContract: string;
+  readonly next?: NextEscrowContracts | undefined;
 }
 
 export const commerceContractsSchema: z.ZodType<CommerceContracts> = z.object({
   network: z.enum(["testnet", "mainnet"]),
   stxContract: z.string(),
   sbtcContract: z.string(),
+  next: z.object({ stxContract: z.string(), sbtcContract: z.string() }).optional(),
 }).superRefine((contracts, context) => {
   const policy = policyForNetwork(contracts.network);
   if (contracts.stxContract !== policy.stxContract || contracts.sbtcContract !== policy.sbtcContract) {
     context.addIssue({ code: "custom", message: "Contracts do not match the exact network allowlist." });
   }
+  if (contracts.next) {
+    const [deployer = ""] = contracts.next.stxContract.split(".");
+    const expected = nextEscrowContracts(deployer);
+    if (!isNextDeployerForNetwork(deployer, contracts.network) ||
+      contracts.next.stxContract !== expected.stxContract || contracts.next.sbtcContract !== expected.sbtcContract) {
+      context.addIssue({ code: "custom", message: "Next-generation contracts are invalid for the selected network." });
+    }
+  }
 });
+
+/** True only for the configured next-generation escrows; the current pair is never "next". */
+export function isNextContract(contracts: CommerceContracts, contract: string): boolean {
+  return Boolean(contracts.next) &&
+    (contract === contracts.next?.stxContract || contract === contracts.next?.sbtcContract);
+}
 
 export function hasServiceFees(contracts: CommerceContracts): boolean {
   return policyForNetwork(contracts.network).serviceFeeBps > 0;
@@ -100,6 +174,8 @@ export function matchesTarget(contracts: CommerceContracts, target: {
 }): boolean {
   return target.network === contracts.network && (
     (target.asset === "stx" && target.contract === contracts.stxContract) ||
-    (target.asset === "sbtc" && target.contract === contracts.sbtcContract)
+    (target.asset === "sbtc" && target.contract === contracts.sbtcContract) ||
+    (target.asset === "stx" && target.contract === contracts.next?.stxContract) ||
+    (target.asset === "sbtc" && target.contract === contracts.next?.sbtcContract)
   );
 }
