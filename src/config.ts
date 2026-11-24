@@ -6,7 +6,9 @@ import {
   isNextDeployerForNetwork,
   isPrincipalForNetwork,
   MAINNET_EVALUATOR_CONFIRMATION,
-  nextEscrowContracts,
+  NAYORI_NEXT_DEPLOYERS,
+  NAYORI_NEXT_NETWORKS,
+  nextEscrowContractsForNetwork,
   policyForNetwork,
   type CommerceContracts,
 } from "./contracts.js";
@@ -40,7 +42,9 @@ const configSchema = z.object({
   PUBLIC_EVALUATIONS_QUEUE_LIMIT: z.coerce.number().int().min(1).max(20).default(5),
   PUBLIC_EVALUATIONS_MIN_STX: z.string().regex(/^[1-9][0-9]{0,20}$/).default("100000"),
   PUBLIC_EVALUATIONS_MIN_SBTC: z.string().regex(/^[1-9][0-9]{0,20}$/).default("1000"),
-  // Next contract generation: off unless set. Standard address of the deployer of nayori-escrow-*.
+  // Next contract generation (nayori-escrow-*): explicit opt-in, off by default. The deployer is
+  // pinned per network in code; NAYORI_NEXT_DEPLOYER is an optional cross-check that must equal it.
+  NAYORI_NEXT_ENABLED: z.enum(["true", "false"]).default("false"),
   NAYORI_NEXT_DEPLOYER: z.string().default(""),
 }).superRefine((config, context) => {
   const policy = policyForNetwork(config.STACKS_NETWORK);
@@ -67,8 +71,14 @@ const configSchema = z.object({
     config.CONFIRM_MAINNET_EVALUATOR !== MAINNET_EVALUATOR_CONFIRMATION) {
     context.addIssue({ code: "custom", message: "Explicit mainnet evaluator activation is required." });
   }
+  if (config.NAYORI_NEXT_ENABLED === "true" && !NAYORI_NEXT_NETWORKS.includes(config.STACKS_NETWORK)) {
+    context.addIssue({ code: "custom", message: "The next contract generation is not enabled for STACKS_NETWORK." });
+  }
+  if (config.NAYORI_NEXT_DEPLOYER && config.NAYORI_NEXT_ENABLED !== "true") {
+    context.addIssue({ code: "custom", message: "NAYORI_NEXT_DEPLOYER is set but NAYORI_NEXT_ENABLED is not true." });
+  }
   if (config.NAYORI_NEXT_DEPLOYER && !isNextDeployerForNetwork(config.NAYORI_NEXT_DEPLOYER, config.STACKS_NETWORK)) {
-    context.addIssue({ code: "custom", message: "NAYORI_NEXT_DEPLOYER is invalid or not enabled for STACKS_NETWORK." });
+    context.addIssue({ code: "custom", message: "NAYORI_NEXT_DEPLOYER does not match the pinned deployer for STACKS_NETWORK." });
   }
   if (config.PRIVATE_EVIDENCE_ENABLED === "true" && (
     policy.privateEvidenceOrigin === null || config.PRIVATE_EVIDENCE_ORIGIN !== policy.privateEvidenceOrigin ||
@@ -89,13 +99,13 @@ export function evaluationLeaseSeconds(config: Pick<EvaluatorConfig, "INFERENCE_
   return Math.ceil((4 * config.INFERENCE_TIMEOUT_MS + 2 * 8 * 18_000 + 2 * 15_000 + 60_000) / 1000);
 }
 
-/** The selected contracts, including the next generation only when NAYORI_NEXT_DEPLOYER is set. */
+/** The selected contracts, including the pinned next generation only when NAYORI_NEXT_ENABLED=true. */
 export function commerceContractsForConfig(config: EvaluatorConfig): CommerceContracts {
   return commerceContractsSchema.parse({
     network: config.STACKS_NETWORK,
     stxContract: config.STX_COMMERCE_CONTRACT,
     sbtcContract: config.SBTC_COMMERCE_CONTRACT,
-    ...(config.NAYORI_NEXT_DEPLOYER ? { next: nextEscrowContracts(config.NAYORI_NEXT_DEPLOYER) } : {}),
+    ...(config.NAYORI_NEXT_ENABLED === "true" ? { next: nextEscrowContractsForNetwork(config.STACKS_NETWORK) } : {}),
   });
 }
 
@@ -115,7 +125,8 @@ export function safeConfig(config: EvaluatorConfig) {
     committedEvaluationsEnabled: config.PUBLIC_COMMITTED_EVALUATIONS === "true",
     privateEvidenceEnabled: config.PRIVATE_EVIDENCE_ENABLED === "true",
     nextGeneration: contracts.next
-      ? { enabled: true, stxContract: contracts.next.stxContract, sbtcContract: contracts.next.sbtcContract }
+      ? { enabled: true, deployer: NAYORI_NEXT_DEPLOYERS[config.STACKS_NETWORK],
+          stxContract: contracts.next.stxContract, sbtcContract: contracts.next.sbtcContract }
       : { enabled: false },
     hermesOrigin: new URL(config.HERMES_API_BASE_URL).origin,
     primaryModel: config.PRIMARY_MODEL,

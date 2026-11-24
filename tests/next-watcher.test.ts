@@ -1,10 +1,10 @@
 import { Cl, ClarityType, type ClarityValue } from "@stacks/transactions";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { NextJobWatcher } from "../src/next-watcher.js";
-import { EVALUATOR_NETWORK_POLICIES, nextEscrowContracts } from "../src/contracts.js";
+import { EVALUATOR_NETWORK_POLICIES, NAYORI_NEXT_DEPLOYERS, nextEscrowContracts } from "../src/contracts.js";
 
 const policy = EVALUATOR_NETWORK_POLICIES.testnet;
-const next = nextEscrowContracts("ST3QBWTA0XSA94YDXT13QFH3ZMSZSM1V4Z645YHT9");
+const next = nextEscrowContracts(NAYORI_NEXT_DEPLOYERS.testnet);
 const OTHER_EVALUATOR = policy.appealAuthority;
 const current = { network: "testnet" as const, stxContract: policy.stxContract, sbtcContract: policy.sbtcContract };
 

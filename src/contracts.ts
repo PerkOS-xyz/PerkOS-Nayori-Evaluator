@@ -73,11 +73,16 @@ export function isContractIdForNetwork(value: string, network: StacksNetworkName
 }
 
 /**
- * Next contract generation (nayori-escrow-stx / nayori-escrow-sbtc). Not deployed yet, so the
- * deployer comes from configuration and the generation stays off unless it is set. Until a reviewed
- * mainnet deployment is pinned in code, it is accepted on testnet only.
+ * Next contract generation (nayori-escrow-stx / nayori-escrow-sbtc), live on 2026-11-24. The
+ * deployer of each network is pinned here like the current release tuple; the deployer has no
+ * powers over the contracts (roles live in nayori-roles). The generation is still opt-in through
+ * configuration, and it is accepted only on the networks listed in NAYORI_NEXT_NETWORKS.
  */
 export const NAYORI_NEXT_ESCROW_NAMES = { stx: "nayori-escrow-stx", sbtc: "nayori-escrow-sbtc" } as const;
+export const NAYORI_NEXT_DEPLOYERS: Readonly<Record<StacksNetworkName, string>> = {
+  testnet: "ST3MRPNX0VNWYRSJ07PNTASE5BZ9K5XE57ARZ39DY",
+  mainnet: "SP2BM4WCNQM286PFHPGA1BG2YXER0PCG1PKQ5MF1X",
+};
 export const NAYORI_NEXT_NETWORKS: readonly StacksNetworkName[] = ["testnet"];
 
 export interface NextEscrowContracts {
@@ -92,9 +97,16 @@ export function nextEscrowContracts(deployer: string): NextEscrowContracts {
   };
 }
 
-/** A next-generation deployer is a standard address of the selected network, on an enabled network. */
+/** The pinned next escrows of an enabled network. */
+export function nextEscrowContractsForNetwork(network: StacksNetworkName): NextEscrowContracts {
+  if (!NAYORI_NEXT_NETWORKS.includes(network)) throw new Error("Next generation is not enabled for this network.");
+  return nextEscrowContracts(NAYORI_NEXT_DEPLOYERS[network]);
+}
+
+/** Only the pinned deployer of an enabled network is accepted; an operator cannot pick another one. */
 export function isNextDeployerForNetwork(deployer: string, network: StacksNetworkName): boolean {
-  return NAYORI_NEXT_NETWORKS.includes(network) && isPrincipalForNetwork(deployer, network);
+  return NAYORI_NEXT_NETWORKS.includes(network) && deployer === NAYORI_NEXT_DEPLOYERS[network] &&
+    isPrincipalForNetwork(deployer, network);
 }
 
 export interface CommerceContracts {

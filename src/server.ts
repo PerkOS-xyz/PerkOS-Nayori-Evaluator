@@ -67,7 +67,7 @@ async function readJson(request: IncomingMessage): Promise<unknown> {
 
 export async function main(): Promise<void> {
   const config = loadConfig();
-  // Includes the next escrows only when NAYORI_NEXT_DEPLOYER is set (off by default).
+  // Includes the pinned next escrows only when NAYORI_NEXT_ENABLED=true (off by default).
   const contracts = commerceContractsForConfig(config);
   const pool = new Pool({ connectionString: config.DATABASE_URL, max: 5 });
   await verifyAppliedMigrations(pool, await loadMigrations());

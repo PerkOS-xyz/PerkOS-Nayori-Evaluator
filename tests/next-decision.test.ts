@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { Cl, PostConditionMode, broadcastTransaction, fetchNonce, getAddressFromPrivateKey, makeContractCall } from "@stacks/transactions";
 import { AllowlistedDecisionRecorder, StacksDecisionAdapter } from "../src/chain.js";
-import { EVALUATOR_NETWORK_POLICIES, nextEscrowContracts } from "../src/contracts.js";
+import { EVALUATOR_NETWORK_POLICIES, NAYORI_NEXT_DEPLOYERS, nextEscrowContracts } from "../src/contracts.js";
 import { nextDecisionEvidenceHash } from "../src/next-generation.js";
 import { publicEvaluation } from "../src/public.js";
 import { EvaluationEngine } from "../src/evaluator.js";
@@ -16,7 +16,7 @@ vi.mock("@stacks/transactions", async importOriginal => ({
 
 const KEY = "11".repeat(32) + "01"; // Synthetic unit-test signer; never funded or used against a network.
 const policy = EVALUATOR_NETWORK_POLICIES.testnet;
-const NEXT_DEPLOYER = "ST3QBWTA0XSA94YDXT13QFH3ZMSZSM1V4Z645YHT9";
+const NEXT_DEPLOYER = NAYORI_NEXT_DEPLOYERS.testnet;
 const next = nextEscrowContracts(NEXT_DEPLOYER);
 const current = { network: "testnet" as const, stxContract: policy.stxContract, sbtcContract: policy.sbtcContract };
 const withNext = { ...current, next };

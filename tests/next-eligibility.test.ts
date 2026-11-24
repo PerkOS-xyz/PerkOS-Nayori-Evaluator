@@ -3,10 +3,10 @@ import { describe, expect, it, vi } from "vitest";
 import { StacksEligibility } from "../src/eligibility.js";
 import type { EvaluationRequest } from "../src/domain.js";
 import { prepareEvaluationSubmission } from "../src/evaluation-commitments.js";
-import { EVALUATOR_NETWORK_POLICIES, nextEscrowContracts } from "../src/contracts.js";
+import { EVALUATOR_NETWORK_POLICIES, NAYORI_NEXT_DEPLOYERS, nextEscrowContracts } from "../src/contracts.js";
 
 const policy = EVALUATOR_NETWORK_POLICIES.testnet;
-const NEXT_DEPLOYER = "ST3QBWTA0XSA94YDXT13QFH3ZMSZSM1V4Z645YHT9";
+const NEXT_DEPLOYER = NAYORI_NEXT_DEPLOYERS.testnet;
 const CLIENT = policy.deployer;
 const PROVIDER = "ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM";
 const EVALUATOR = policy.evaluator;
