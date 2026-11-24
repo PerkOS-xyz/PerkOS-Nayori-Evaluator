@@ -104,6 +104,15 @@ describe("Next-generation job watcher", () => {
       apiUrl: EVALUATOR_NETWORK_POLICIES.mainnet.apiUrl })).toThrow();
   });
 
+  it("watches the pinned mainnet escrows on mainnet, and only those", () => {
+    const main = EVALUATOR_NETWORK_POLICIES.mainnet;
+    const mainCurrent = { network: "mainnet" as const, stxContract: main.stxContract, sbtcContract: main.sbtcContract };
+    expect(() => new NextJobWatcher({ contracts: { ...mainCurrent, next: nextEscrowContracts(NAYORI_NEXT_DEPLOYERS.mainnet) },
+      evaluatorPrincipal: main.evaluator, apiUrl: main.apiUrl })).not.toThrow();
+    expect(() => new NextJobWatcher({ contracts: { ...mainCurrent, next }, evaluatorPrincipal: main.evaluator,
+      apiUrl: main.apiUrl })).toThrow();
+  });
+
   it("fails closed on a crossed network", async () => {
     const f = fixture({});
     f.info.network_id = EVALUATOR_NETWORK_POLICIES.mainnet.networkId;

@@ -2,7 +2,13 @@ import { createHash } from "node:crypto";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { Cl, PostConditionMode, broadcastTransaction, fetchNonce, getAddressFromPrivateKey, makeContractCall } from "@stacks/transactions";
 import { AllowlistedDecisionRecorder, StacksDecisionAdapter } from "../src/chain.js";
-import { EVALUATOR_NETWORK_POLICIES, NAYORI_NEXT_DEPLOYERS, nextEscrowContracts } from "../src/contracts.js";
+import {
+  EVALUATOR_NETWORK_POLICIES,
+  MAINNET_EVALUATOR_CONFIRMATION,
+  MAINNET_NEXT_EVALUATOR_CONFIRMATION,
+  NAYORI_NEXT_DEPLOYERS,
+  nextEscrowContracts,
+} from "../src/contracts.js";
 import { nextDecisionEvidenceHash } from "../src/next-generation.js";
 import { publicEvaluation } from "../src/public.js";
 import { EvaluationEngine } from "../src/evaluator.js";
@@ -102,6 +108,47 @@ describe("Signing adapter for the next generation", () => {
   it("denies next escrows when the generation is not configured", async () => {
     await expect(adapter(current).execute(input())).rejects.toThrow("not allowlisted");
     expect(fetchNonce).not.toHaveBeenCalled();
+  });
+
+  describe("on mainnet", () => {
+    const main = EVALUATOR_NETWORK_POLICIES.mainnet;
+    const mainNext = nextEscrowContracts(NAYORI_NEXT_DEPLOYERS.mainnet);
+    const mainContracts = { network: "mainnet" as const, stxContract: main.stxContract, sbtcContract: main.sbtcContract };
+    function mainnetAdapter(confirmations: { current?: string; next?: string }, contracts: object = { ...mainContracts, next: mainNext }) {
+      return new StacksDecisionAdapter({ contracts: contracts as typeof mainContracts, apiUrl: main.apiUrl, privateKey: KEY,
+        evaluatorPrincipal: getAddressFromPrivateKey(KEY, "mainnet"), fee: 5000,
+        ...(confirmations.current === undefined ? {} : { mainnetActivationConfirmation: confirmations.current }),
+        ...(confirmations.next === undefined ? {} : { mainnetNextActivationConfirmation: confirmations.next }) });
+    }
+
+    it.each([
+      {}, { current: MAINNET_EVALUATOR_CONFIRMATION }, { next: MAINNET_NEXT_EVALUATOR_CONFIRMATION },
+      { current: MAINNET_EVALUATOR_CONFIRMATION, next: MAINNET_EVALUATOR_CONFIRMATION },
+    ])("refuses to build a signer for the next escrows without both acknowledgements %j", confirmations => {
+      expect(() => mainnetAdapter(confirmations)).toThrow(/activation/);
+    });
+
+    it("does not need the next acknowledgement when the generation is off", () => {
+      expect(() => mainnetAdapter({ current: MAINNET_EVALUATOR_CONFIRMATION }, mainContracts)).not.toThrow();
+    });
+
+    it("refuses next escrows of any deployer other than the pinned one", () => {
+      expect(() => mainnetAdapter({ current: MAINNET_EVALUATOR_CONFIRMATION, next: MAINNET_NEXT_EVALUATOR_CONFIRMATION },
+        { ...mainContracts, next: nextEscrowContracts(main.deployer) })).toThrow();
+    });
+
+    it("calls record-decision on the pinned mainnet escrow with one evidence hash", async () => {
+      const signer = mainnetAdapter({ current: MAINNET_EVALUATOR_CONFIRMATION, next: MAINNET_NEXT_EVALUATOR_CONFIRMATION });
+      const request = { ...input(mainNext.sbtcContract), network: "mainnet" as const };
+      await signer.execute(request);
+      expect(makeContractCall).toHaveBeenLastCalledWith(expect.objectContaining({
+        contractAddress: "SP2BM4WCNQM286PFHPGA1BG2YXER0PCG1PKQ5MF1X", contractName: "nayori-escrow-sbtc",
+        functionName: "record-decision",
+        functionArgs: [Cl.uint(7), Cl.uint(1), Cl.bufferFromHex(nextDecisionEvidenceHash(request))],
+        postConditionMode: PostConditionMode.Deny, postConditions: [], fee: 5000n,
+      }));
+      await expect(signer.execute({ ...input(next.sbtcContract), network: "mainnet" })).rejects.toThrow("not allowlisted");
+    });
   });
 
   it("recorder passes next artifacts only when configured", async () => {

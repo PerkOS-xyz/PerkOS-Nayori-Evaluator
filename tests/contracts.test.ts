@@ -3,6 +3,7 @@ import { commerceContractsForConfig, evaluationLeaseSeconds, loadConfig, safeCon
 import {
   EVALUATOR_NETWORK_POLICIES,
   MAINNET_EVALUATOR_CONFIRMATION,
+  MAINNET_NEXT_EVALUATOR_CONFIRMATION,
   commerceContractsSchema,
   isCanonicalApiUrl,
   isNextContract,
@@ -195,7 +196,8 @@ describe("Next contract generation configuration", () => {
     const selected = commerceContractsForConfig(config);
     expect(selected.next).toEqual({ stxContract: `${NEXT}.nayori-escrow-stx`, sbtcContract: `${NEXT}.nayori-escrow-sbtc` });
     expect(selected.next).toEqual(nextEscrowContractsForNetwork("testnet"));
-    expect(safeConfig(config).nextGeneration).toEqual({ enabled: true, deployer: NEXT, ...next });
+    expect(safeConfig(config).nextGeneration).toEqual({ enabled: true, deployer: NEXT, ...next,
+      mainnetBroadcastEnabled: false });
     expect(matchesTarget(selected, { network: "testnet", asset: "stx", contract: next.stxContract })).toBe(true);
     expect(matchesTarget(selected, { network: "testnet", asset: "sbtc", contract: next.sbtcContract })).toBe(true);
     expect(matchesTarget(selected, { network: "testnet", asset: "sbtc", contract: next.stxContract })).toBe(false);
@@ -218,10 +220,47 @@ describe("Next contract generation configuration", () => {
     expect(() => loadConfig({ ...env("testnet"), NAYORI_NEXT_ENABLED: "true", NAYORI_NEXT_DEPLOYER: deployer })).toThrow();
   });
 
-  it("is not enabled on mainnet yet", () => {
-    expect(() => loadConfig({ ...env("mainnet"), NAYORI_NEXT_ENABLED: "true" })).toThrow();
+  it("enables mainnet only with its own explicit activation", () => {
+    const mainnet = { ...env("mainnet"), NAYORI_NEXT_ENABLED: "true" };
+    expect(() => loadConfig(mainnet)).toThrow("next contract generation");
+    for (const value of ["yes", MAINNET_EVALUATOR_CONFIRMATION, `${MAINNET_NEXT_EVALUATOR_CONFIRMATION} `]) {
+      expect(() => loadConfig({ ...mainnet, CONFIRM_MAINNET_NEXT_EVALUATOR: value })).toThrow();
+    }
+    // The next acknowledgement never replaces the existing mainnet evaluator activation.
+    expect(() => loadConfig({ ...mainnet, CONFIRM_MAINNET_EVALUATOR: "",
+      CONFIRM_MAINNET_NEXT_EVALUATOR: MAINNET_NEXT_EVALUATOR_CONFIRMATION })).toThrow();
+    const config = loadConfig({ ...mainnet, CONFIRM_MAINNET_NEXT_EVALUATOR: MAINNET_NEXT_EVALUATOR_CONFIRMATION });
+    const selected = commerceContractsForConfig(config);
+    const mainnetNext = nextEscrowContracts(NAYORI_NEXT_DEPLOYERS.mainnet);
+    expect(selected.next).toEqual({
+      stxContract: "SP2BM4WCNQM286PFHPGA1BG2YXER0PCG1PKQ5MF1X.nayori-escrow-stx",
+      sbtcContract: "SP2BM4WCNQM286PFHPGA1BG2YXER0PCG1PKQ5MF1X.nayori-escrow-sbtc",
+    });
+    expect(safeConfig(config).nextGeneration).toEqual({ enabled: true, deployer: NAYORI_NEXT_DEPLOYERS.mainnet,
+      ...mainnetNext, mainnetBroadcastEnabled: true });
+    expect(JSON.stringify(safeConfig(config))).not.toContain(MAINNET_NEXT_EVALUATOR_CONFIRMATION);
+    expect(matchesTarget(selected, { network: "mainnet", asset: "sbtc", contract: mainnetNext.sbtcContract })).toBe(true);
+    expect(matchesTarget(selected, { network: "mainnet", asset: "stx", contract: next.stxContract })).toBe(false);
+  });
+
+  it("keeps the mainnet next generation off without the flag, even when acknowledged", () => {
+    const config = loadConfig({ ...env("mainnet"), CONFIRM_MAINNET_NEXT_EVALUATOR: MAINNET_NEXT_EVALUATOR_CONFIRMATION });
+    expect(commerceContractsForConfig(config).next).toBeUndefined();
+    expect(safeConfig(config).nextGeneration).toEqual({ enabled: false });
+  });
+
+  it.each([NAYORI_NEXT_DEPLOYERS.testnet, EVALUATOR_NETWORK_POLICIES.mainnet.deployer,
+    EVALUATOR_NETWORK_POLICIES.mainnet.evaluator])("rejects override deployer %s on mainnet", deployer => {
+    expect(() => loadConfig({ ...env("mainnet"), NAYORI_NEXT_ENABLED: "true",
+      CONFIRM_MAINNET_NEXT_EVALUATOR: MAINNET_NEXT_EVALUATOR_CONFIRMATION, NAYORI_NEXT_DEPLOYER: deployer })).toThrow();
+  });
+
+  it("accepts only the pinned mainnet escrows on mainnet", () => {
+    const pinned = nextEscrowContracts(NAYORI_NEXT_DEPLOYERS.mainnet);
+    expect(commerceContractsSchema.parse({ ...contracts("mainnet"), next: pinned }).next).toEqual(pinned);
+    expect(() => commerceContractsSchema.parse({ ...contracts("mainnet"), next })).toThrow();
     expect(() => commerceContractsSchema.parse({ ...contracts("mainnet"),
-      next: nextEscrowContracts(NAYORI_NEXT_DEPLOYERS.mainnet) })).toThrow();
+      next: nextEscrowContracts(EVALUATOR_NETWORK_POLICIES.mainnet.deployer) })).toThrow();
   });
 
   it("rejects next escrows of any other deployer, even a valid address of the network", () => {

@@ -112,6 +112,7 @@ export async function main(): Promise<void> {
     evaluatorPrincipal: config.EVALUATOR_PRINCIPAL,
     fee: config.TRANSACTION_FEE_USTX,
     mainnetActivationConfirmation: config.CONFIRM_MAINNET_EVALUATOR,
+    mainnetNextActivationConfirmation: config.CONFIRM_MAINNET_NEXT_EVALUATOR,
   });
   const recorder = new AllowlistedDecisionRecorder({ ...contracts, adapter });
   const eligibility = new StacksEligibility({ contracts,

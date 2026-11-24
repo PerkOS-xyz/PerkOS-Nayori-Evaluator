@@ -6,6 +6,7 @@ import {
   isNextDeployerForNetwork,
   isPrincipalForNetwork,
   MAINNET_EVALUATOR_CONFIRMATION,
+  MAINNET_NEXT_EVALUATOR_CONFIRMATION,
   NAYORI_NEXT_DEPLOYERS,
   NAYORI_NEXT_NETWORKS,
   nextEscrowContractsForNetwork,
@@ -46,6 +47,8 @@ const configSchema = z.object({
   // pinned per network in code; NAYORI_NEXT_DEPLOYER is an optional cross-check that must equal it.
   NAYORI_NEXT_ENABLED: z.enum(["true", "false"]).default("false"),
   NAYORI_NEXT_DEPLOYER: z.string().default(""),
+  // Mainnet only: a second, separate acknowledgement before the next escrows can be signed for.
+  CONFIRM_MAINNET_NEXT_EVALUATOR: z.string().default(""),
 }).superRefine((config, context) => {
   const policy = policyForNetwork(config.STACKS_NETWORK);
   if (config.EVALUATOR_ENV !== policy.environment) {
@@ -73,6 +76,10 @@ const configSchema = z.object({
   }
   if (config.NAYORI_NEXT_ENABLED === "true" && !NAYORI_NEXT_NETWORKS.includes(config.STACKS_NETWORK)) {
     context.addIssue({ code: "custom", message: "The next contract generation is not enabled for STACKS_NETWORK." });
+  }
+  if (config.NAYORI_NEXT_ENABLED === "true" && config.STACKS_NETWORK === "mainnet" &&
+    config.CONFIRM_MAINNET_NEXT_EVALUATOR !== MAINNET_NEXT_EVALUATOR_CONFIRMATION) {
+    context.addIssue({ code: "custom", message: "Explicit mainnet activation of the next contract generation is required." });
   }
   if (config.NAYORI_NEXT_DEPLOYER && config.NAYORI_NEXT_ENABLED !== "true") {
     context.addIssue({ code: "custom", message: "NAYORI_NEXT_DEPLOYER is set but NAYORI_NEXT_ENABLED is not true." });
@@ -126,7 +133,9 @@ export function safeConfig(config: EvaluatorConfig) {
     privateEvidenceEnabled: config.PRIVATE_EVIDENCE_ENABLED === "true",
     nextGeneration: contracts.next
       ? { enabled: true, deployer: NAYORI_NEXT_DEPLOYERS[config.STACKS_NETWORK],
-          stxContract: contracts.next.stxContract, sbtcContract: contracts.next.sbtcContract }
+          stxContract: contracts.next.stxContract, sbtcContract: contracts.next.sbtcContract,
+          mainnetBroadcastEnabled: config.STACKS_NETWORK === "mainnet" &&
+            config.CONFIRM_MAINNET_NEXT_EVALUATOR === MAINNET_NEXT_EVALUATOR_CONFIRMATION }
       : { enabled: false },
     hermesOrigin: new URL(config.HERMES_API_BASE_URL).origin,
     primaryModel: config.PRIMARY_MODEL,

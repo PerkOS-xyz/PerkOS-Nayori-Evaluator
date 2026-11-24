@@ -3,6 +3,8 @@ import { z } from "zod";
 
 export type StacksNetworkName = "testnet" | "mainnet";
 export const MAINNET_EVALUATOR_CONFIRMATION = "enable-record-decision-v6-v5-mainnet";
+/** Separate acknowledgement for signing record-decision on the next mainnet escrows. */
+export const MAINNET_NEXT_EVALUATOR_CONFIRMATION = "enable-record-decision-nayori-escrow-mainnet";
 
 export const EVALUATOR_NETWORK_POLICIES = {
   testnet: {
@@ -76,14 +78,15 @@ export function isContractIdForNetwork(value: string, network: StacksNetworkName
  * Next contract generation (nayori-escrow-stx / nayori-escrow-sbtc), live on 2026-11-24. The
  * deployer of each network is pinned here like the current release tuple; the deployer has no
  * powers over the contracts (roles live in nayori-roles). The generation is still opt-in through
- * configuration, and it is accepted only on the networks listed in NAYORI_NEXT_NETWORKS.
+ * configuration, and it is accepted only on the networks listed in NAYORI_NEXT_NETWORKS. On mainnet
+ * it also needs its own activation acknowledgement, MAINNET_NEXT_EVALUATOR_CONFIRMATION.
  */
 export const NAYORI_NEXT_ESCROW_NAMES = { stx: "nayori-escrow-stx", sbtc: "nayori-escrow-sbtc" } as const;
 export const NAYORI_NEXT_DEPLOYERS: Readonly<Record<StacksNetworkName, string>> = {
   testnet: "ST3MRPNX0VNWYRSJ07PNTASE5BZ9K5XE57ARZ39DY",
   mainnet: "SP2BM4WCNQM286PFHPGA1BG2YXER0PCG1PKQ5MF1X",
 };
-export const NAYORI_NEXT_NETWORKS: readonly StacksNetworkName[] = ["testnet"];
+export const NAYORI_NEXT_NETWORKS: readonly StacksNetworkName[] = ["testnet", "mainnet"];
 
 export interface NextEscrowContracts {
   readonly stxContract: string;
